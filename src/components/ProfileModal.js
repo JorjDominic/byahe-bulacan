@@ -4,7 +4,7 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
 
 export default function ProfileModal({ onClose }) {
-  const { userName, userId, avatarUrl: currentAvatar, setAvatar, showToast, isPremium, setPremium } = useApp();
+  const { userName, userId, avatarUrl: currentAvatar, setAvatar, showToast, isPremium } = useApp();
   
   const firstName    = userName ? userName.split(" ")[0] : "Traveler";
   const [nickname,   setNickname]   = useState(firstName);

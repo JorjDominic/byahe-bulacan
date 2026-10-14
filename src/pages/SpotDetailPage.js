@@ -51,10 +51,7 @@ export default function SpotDetailPage({ spotId }) {
   }, [spotId]);
 
   useEffect(() => {
-    recalcTimes(tripDate);
-  }, [tripDate, itineraries]);
-
-  const recalcTimes = (date) => {
+    const date       = tripDate;
     const ph         = getPHTime();
     const curMins    = ph.getHours() * 60 + ph.getMinutes();
     const isToday    = date === getTodayPH();
@@ -92,7 +89,7 @@ export default function SpotDetailPage({ spotId }) {
         setArrivalTime(avail[0]);
       }
     }
-  };
+  }, [tripDate, itineraries]);
 
   const handleTimeChange = (time) => {
     setArrivalTime(time);

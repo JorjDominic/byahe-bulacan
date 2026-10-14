@@ -33,10 +33,9 @@ function getGreeting() {
 }
 
 export default function DashboardPage() {
-  const { userName, userId, navigate, itineraries = {}, itineraryDates = [], getItinerary, isPremium } = useApp();
+  const { userName, navigate, itineraries = {}, itineraryDates = [], getItinerary, isPremium } = useApp();
   
   const [recommended, setRecommended]  = useState([]);
-  const [reviewCount, setReviewCount]  = useState(0); 
   
   const firstName = userName ? userName.split(" ")[0] : "Traveler";
   const greeting = getGreeting();
@@ -45,20 +44,8 @@ export default function DashboardPage() {
     getAllSpots().then((data) => {
       setRecommended(data.slice(0, 3));
       
-      let myReviews = 0;
-      data.forEach((spot) => {
-        if (spot.reviews && Array.isArray(spot.reviews)) {
-          myReviews += spot.reviews.filter((r) => r.userId === userId).length;
-        } 
-        else if (spot.reviews && typeof spot.reviews === 'object') {
-          Object.values(spot.reviews).forEach((r) => {
-            if (r.userId === userId) myReviews++;
-          });
-        }
-      });
-      setReviewCount(myReviews);
     });
-  }, [userId]);
+  }, []);
 
   const todayPH = getTodayPH();
   const futureDates = itineraryDates.filter(date => date >= todayPH).sort();

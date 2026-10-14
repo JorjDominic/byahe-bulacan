@@ -16,7 +16,6 @@ import PremiumBanner from "../components/landing/PremiumBanner";
 import "../styles/landing-premium.css";
 
 import mainLogo from "../assets/images/byahebulacan.png";
-import bitbitB from "../assets/images/bitbitB.png";
 import hero1 from "../assets/images/hero-1.png";
 import hero2 from "../assets/images/hero-2.png";
 import hero3 from "../assets/images/hero-3.png";
