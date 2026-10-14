@@ -25,10 +25,14 @@ export function clearSpotsCache() {
 export async function getAllSpots() {
   if (spotsCache) return spotsCache;
   try {
-    const snap = await getDocs(
-      query(collection(db, "spots"), orderBy("createdAt", "desc"))
-    );
-    spotsCache = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const snap = await getDocs(collection(db, "spots"));
+    spotsCache = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const aTime = a.createdAt?.toMillis?.() ?? 0;
+        const bTime = b.createdAt?.toMillis?.() ?? 0;
+        return bTime - aTime;
+      });
     return spotsCache;
   } catch (err) {
     console.error("getAllSpots error:", err);

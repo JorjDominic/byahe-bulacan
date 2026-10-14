@@ -5,7 +5,7 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../services/firebase";
 import { useApp } from "../context/AppContext";
 
@@ -21,7 +21,7 @@ export function useAuth() {
     } catch (err) {
       console.error("fetchUserProfile error:", err);
     }
-    return { name: "Traveler", role: "user", avatarUrl: "", isPremium: false };
+    return null;
   };
 
   const signIn = async (email, password) => {
@@ -29,7 +29,22 @@ export function useAuth() {
     setLoading(true);
     try {
       const result  = await signInWithEmailAndPassword(auth, email, password);
-      const profile = await fetchUserProfile(result.user.uid);
+      let profile = await fetchUserProfile(result.user.uid);
+
+      // Repair older accounts that were created in Authentication while the
+      // expired Firestore rules prevented their profile document from saving.
+      if (!profile) {
+        profile = {
+          name: result.user.displayName || "Traveler",
+          role: "user",
+          email: result.user.email || email.trim().toLowerCase(),
+          avatarUrl: "",
+          nickname: result.user.displayName || "Traveler",
+          isPremium: false,
+          createdAt: serverTimestamp(),
+        };
+        await setDoc(doc(db, "users", result.user.uid), profile);
+      }
       login(
         profile.role      || "user",
         profile.name      || "Traveler",
@@ -73,7 +88,7 @@ export function useAuth() {
         avatarUrl: "",
         nickname:  name.trim().split(" ")[0],
         isPremium: false, // New users start free
-        createdAt: new Date().toISOString(),
+        createdAt: serverTimestamp(),
       });
       
       login("user", name.trim(), result.user.uid, "", false);
@@ -94,7 +109,7 @@ export function useAuth() {
   const initAuthListener = (onReady) => {
     return onAuthStateChanged(auth, async (user) => {
       if (user) {
-        const profile = await fetchUserProfile(user.uid);
+        const profile = await fetchUserProfile(user.uid) || {};
         login(
           profile.role      || "user",
           profile.name      || "Traveler",
@@ -124,6 +139,8 @@ function getFriendlyError(code) {
       return "Please enter a valid email address.";
     case "auth/weak-password":
       return "Password must be at least 6 characters.";
+    case "permission-denied":
+      return "Your account was created, but the profile could not be saved. Please contact support.";
     default:
       return "Something went wrong. Please try again.";
   }

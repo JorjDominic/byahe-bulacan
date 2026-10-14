@@ -8,9 +8,6 @@ import {
   CalendarDays, Camera, Map, Wallet, Navigation 
 } from "lucide-react";
 
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../services/firebase";
-
 function getPHTime() {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Manila" }));
 }
@@ -36,33 +33,13 @@ function getGreeting() {
 }
 
 export default function DashboardPage() {
-  const { userName, userId, navigate, itineraries = {}, itineraryDates = [], getItinerary, isPremium, setPremium, showToast } = useApp();
+  const { userName, userId, navigate, itineraries = {}, itineraryDates = [], getItinerary, isPremium } = useApp();
   
   const [recommended, setRecommended]  = useState([]);
   const [reviewCount, setReviewCount]  = useState(0); 
   
   const firstName = userName ? userName.split(" ")[0] : "Traveler";
   const greeting = getGreeting();
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    
-    if (params.get("payment") === "success" && userId) {
-      updateDoc(doc(db, "users", userId), { 
-        isPremium: true,
-        premiumDate: new Date().toISOString()
-      }).then(() => {
-        setPremium(true);
-        showToast("💎 Payment Successful! You are now a Premium member.");
-        window.history.replaceState({}, document.title, "/");
-      }).catch(err => {
-        console.error("Failed to apply premium upgrade:", err);
-      });
-    } else if (params.get("payment") === "cancelled") {
-      showToast("❌ Payment was cancelled.");
-      window.history.replaceState({}, document.title, "/");
-    }
-  }, [userId, setPremium, showToast]);
 
   useEffect(() => {
     getAllSpots().then((data) => {

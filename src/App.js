@@ -3,8 +3,6 @@ import "./assets/css/App.css";
 import { useApp } from "./context/AppContext";
 import ROUTES from "./constants/routes";
 import { useAuth } from "./hooks/useAuth";
-import { db } from "./services/firebase";
-import { doc, updateDoc } from "firebase/firestore";
 
 // Components
 import Nav from "./components/Nav";
@@ -23,7 +21,7 @@ import AdminPage from "./pages/AdminPage";
 import PremiumPage from "./pages/PremiumPage";
 
 export default function App() {
-  const { page, toast, userId, setPremium, showToast } = useApp();
+  const { page, toast, showToast } = useApp();
   const { initAuthListener } = useAuth();
   
   // Create a loading state to wait for Firebase to restore the session
@@ -38,30 +36,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Catch PayMongo Redirects & Upgrade the User
+  // 2. Show the result of a PayMongo redirect. Premium access must only be
+  // granted by the verified server-side webhook, never by a URL parameter.
   useEffect(() => {
-    const checkPayment = async () => {
+    const checkPayment = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const paymentStatus = urlParams.get("payment");
 
-      // If payment is successful AND the user session is loaded
-      if (paymentStatus === "success" && userId) {
-        try {
-          // A. Upgrade in Firestore Database
-          await updateDoc(doc(db, "users", userId), { isPremium: true });
-          
-          // B. Upgrade in React's local memory
-          setPremium(true);
-          
-          // C. Show success message
-          showToast("🎉 Payment successful! You are now a Premium member!");
-          
-          // D. Clean the URL so it doesn't upgrade them again if they refresh
-          window.history.replaceState({}, document.title, window.location.pathname);
-        } catch (error) {
-          console.error("Error upgrading user:", error);
-          showToast("Payment recorded, but failed to upgrade account. Contact admin.");
-        }
+      if (paymentStatus === "success") {
+        showToast("Payment received. Your Premium access is being verified.");
+        window.history.replaceState({}, document.title, window.location.pathname);
       } else if (paymentStatus === "cancelled") {
         showToast("Payment cancelled. You have not been charged.");
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -71,7 +55,7 @@ export default function App() {
     if (!authLoading) {
       checkPayment();
     }
-  }, [authLoading, userId, setPremium, showToast]);
+  }, [authLoading, showToast]);
 
   const spotId = page.startsWith(ROUTES.SPOT_PREFIX)
     ? page.replace(ROUTES.SPOT_PREFIX, "")
