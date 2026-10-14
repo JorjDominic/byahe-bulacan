@@ -217,7 +217,7 @@ export default function SpotDetailPage({ spotId }) {
             <ArrowLeft size={18} /> Back to Explore
           </button>
           
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "2rem" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 300px), 1fr))", gap: "2rem", alignItems: "start" }}>
             {/* ── Left: Image & Info ─────────────────────────────────────────────── */}
             <div>
               <div style={{ height: "300px", borderRadius: "16px", overflow: "hidden", background: spot.bg || "var(--border)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "1.5rem" }}>
@@ -298,7 +298,7 @@ export default function SpotDetailPage({ spotId }) {
             {/* ── Right: Planner Sidebar ────────────────────────────────────────────── */}
             <div>
               {/* FIXED SIDEBAR BACKGROUND */}
-              <div style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: "16px", padding: "1.5rem", position: "sticky", top: "100px" }}>
+              <div style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: "16px", padding: "1.5rem" }}>
                 <h4 style={{ margin: "0 0 0.25rem 0", fontSize: "1.2rem", color: "var(--text-main)" }}>Plan Your Visit</h4>
                 <p style={{ fontSize: "0.9rem", color: "var(--muted)", marginBottom: "1.5rem" }}>
                   Choose a date and arrival time for this spot.
