@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useApp } from "../context/AppContext";
 import DestinationMap from "../components/DestinationMap";
+import CommuteAdmin from "../components/CommuteAdmin";
 import { getCoordinates, getLocationFields, LOCATION_TYPES } from "../utils/coordinates";
 import {
   getAllSpots,
@@ -140,7 +141,7 @@ export default function AdminPage() {
           <div className="admin-brand">
             Admin Center
           </div>
-          {["overview", "spots", "users"].map((t) => (
+          {["overview", "spots", "commuting", "users"].map((t) => (
             <button
               key={t}
               className={"admin-nav-link " + (adminTab === t ? "active" : "")}
@@ -159,6 +160,7 @@ export default function AdminPage() {
       </div>
 
       <div className="admin-body">
+        {adminTab === "commuting" && <CommuteAdmin spots={spots} />}
 
         {/* ── OVERVIEW ───────────────────────────────────────── */}
         {adminTab === "overview" && (

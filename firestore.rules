@@ -81,6 +81,25 @@ service cloud.firestore {
         || (signedIn() && resource.data.userId == request.auth.uid);
     }
 
+    match /commuteGuides/{guideId} {
+      allow read: if isAdmin() || (resource.data.status == "published" && resource.data.verified == true);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /commuteReports/{reportId} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(["guideId", "userId", "text", "status", "createdAt"])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.guideId is string
+        && get(/databases/$(database)/documents/commuteGuides/$(request.resource.data.guideId)).data.status == "published"
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 10
+        && request.resource.data.text.size() <= 1000
+        && request.resource.data.status == "open"
+        && request.resource.data.createdAt == request.time;
+      allow read, update, delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

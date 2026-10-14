@@ -4,11 +4,13 @@ Interactive Travel Directory with User Reviews and Itinerary Planning
 
 ---
 
-## Embedded maps and directions
+## Google Maps and commuting
 
-Destination maps, itinerary pins, an admin location picker, and driving/walking
-routes are available inside the app. See [Google Maps setup](docs/google-maps-setup.md)
-for Google Cloud and Vercel configuration and destination review steps.
+Phase 1 adds destination maps, itinerary pins, an admin location picker,
+and in-system driving/walking routes. Phase 2 adds Google transit directions,
+verified local commuting guides, and an admin report-review workflow.
+See [Google Maps setup](docs/google-maps-setup.md) for the required Vercel
+environment variables, Google Cloud configuration, and destination review steps.
 
 ## Quick Start
 

@@ -16,4 +16,11 @@
 .travel-steps li::marker { color: var(--pri); font-weight: 700; }
 .travel-steps small { color: var(--muted); }
 .travel-steps__details { margin: .4rem 0; padding: .7rem; border-radius: 8px; background: var(--bg-main, var(--bg)); }
+.commute-helper { margin-top: 1.25rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.commute-guide { border: 1px solid var(--border); border-radius: 10px; padding: 1rem; margin-top: 1rem; }
+.commute-guide h5 { font-size: 1rem; margin-bottom: .6rem; }
+.commute-guide__meta { font-size: .8rem; color: var(--muted); line-height: 1.7; }
+.commute-guide p, .travel-steps p { overflow-wrap: anywhere; }
+.commute-admin__step { padding: 1rem; border: 1px solid var(--border); border-radius: 10px; margin: 1rem 0; }
+.commute-admin__header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .6rem; }
 .travel-planner input:focus-visible, .travel-planner select:focus-visible, .travel-planner button:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }

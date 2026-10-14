@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Navigation, MapPin, Car, Footprints } from "lucide-react";
+import { Navigation, MapPin, Car, Footprints, Bus } from "lucide-react";
 import DestinationMap from "./DestinationMap";
+import CommuteHelper from "./CommuteHelper";
 import { computeRoute, formatDistance, formatDuration } from "../services/routeService";
 import { getCoordinates } from "../utils/coordinates";
 import "./TravelPlanner.css";
@@ -69,7 +70,7 @@ export default function TravelPlanner({ locations, selectedId, onSelect }) {
           </select>
         </div>}
         <div className="travel-planner__modes" aria-label="Travel mode">
-          {[{ value: "DRIVING", label: "Drive", Icon: Car }, { value: "WALKING", label: "Walk", Icon: Footprints }].map(({ value, label, Icon }) => <button key={value} type="button" className="btn btn-sec btn-sm" aria-pressed={mode === value} onClick={() => setMode(value)}><Icon size={16} aria-hidden="true" /> {label}</button>)}
+          {[{ value: "DRIVING", label: "Drive", Icon: Car }, { value: "WALKING", label: "Walk", Icon: Footprints }, { value: "TRANSIT", label: "Commute", Icon: Bus }].map(({ value, label, Icon }) => <button key={value} type="button" className="btn btn-sec btn-sm" aria-pressed={mode === value} onClick={() => setMode(value)}><Icon size={16} aria-hidden="true" /> {label}</button>)}
         </div>
         <div className="travel-planner__field">
           <label htmlFor={id + "-origin"}>Starting address or landmark</label>
@@ -83,7 +84,7 @@ export default function TravelPlanner({ locations, selectedId, onSelect }) {
           {previousStop && getCoordinates(previousStop) && <button className="btn btn-sec btn-sm" type="button" onClick={() => {
             geoRequestId.current += 1; setLocating(false); setAddress(""); setOrigin(getCoordinates(previousStop)); setOriginName(previousStop.name);
           }}>Start from previous stop</button>}
-          <button className="btn btn-pri btn-sm" type="submit" disabled={loading || locating || !getCoordinates(destination)}>{loading ? "Finding route…" : "Show route"}</button>
+          <button className="btn btn-pri btn-sm" type="submit" disabled={loading || locating || !getCoordinates(destination)}>{loading ? "Finding route…" : mode === "TRANSIT" ? "Find transit route" : "Show route"}</button>
         </div>
         {origin && typeof origin !== "string" && <p className="location-note">Starting from {originName}. It is used for this request and is not saved to your profile.</p>}
         {!getCoordinates(destination) && <p className="location-note">An exact destination pin is needed to calculate a route.</p>}
@@ -91,13 +92,20 @@ export default function TravelPlanner({ locations, selectedId, onSelect }) {
       {error && <p role="alert" className="travel-planner__error">{error}</p>}
       {route && <section className="travel-planner__result" aria-label="Route directions" aria-live="polite">
         <p className="travel-planner__summary">{route.localizedValues?.distance || formatDistance(route.distanceMeters)} · {route.localizedValues?.duration || formatDuration(route.durationMillis)}</p>
-        <p className="location-note">{"Estimated travel time. Road and traffic conditions may change."}</p>
+        <p className="location-note">{mode === "TRANSIT" ? "Google transit directions for current departures. Local jeepney coverage may be incomplete." : "Estimated travel time. Road and traffic conditions may change."}</p>
         {(route.warnings || []).map((warning, index) => <p className="location-note location-note--unverified" key={index}>{warning}</p>)}
         {steps.length ? <ol className="travel-steps">{steps.map((step, index) => <li key={index}>
           <p>{step.instructions || "Continue along the highlighted route."}</p>
+          {step.transitDetails && <div className="travel-steps__details">
+            {step.transitDetails.transitLine?.vehicle?.name && <p><strong>Transport:</strong> {step.transitDetails.transitLine.vehicle.name}</p>}
+            <p><strong>Take:</strong> {step.transitDetails.transitLine?.name || step.transitDetails.transitLine?.shortName || "Public transport"}{step.transitDetails.headsign && " toward " + step.transitDetails.headsign}</p>
+            {step.transitDetails.departureStop?.name && <p><strong>Board:</strong> {step.transitDetails.departureStop.name}</p>}
+            {step.transitDetails.arrivalStop?.name && <p><strong>Get off:</strong> {step.transitDetails.arrivalStop.name}</p>}
+          </div>}
           <small>{step.localizedValues?.distance || formatDistance(step.distanceMeters)}</small>
         </li>)}</ol> : <p className="location-note">Step-by-step instructions are unavailable for this route.</p>}
       </section>}
+      {mode === "TRANSIT" && destination && <CommuteHelper key={destination.id} destination={destination} onUseOrigin={(value) => { setAddress(value); setOrigin(value); }} />}
     </div>
   </div>;
 }
