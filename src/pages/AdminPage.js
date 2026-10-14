@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useApp } from "../context/AppContext";
+import DestinationMap from "../components/DestinationMap";
+import { getCoordinates, getLocationFields, LOCATION_TYPES } from "../utils/coordinates";
 import {
   getAllSpots,
   addSpot,
@@ -45,7 +47,7 @@ const EMPTY_FORM = {
   name: "", municipality: "", category: "", fee: "",
   pasalubong: "", hours: "", desc: "", badge: "",
   emoji: "📍", bg: "#e8f5ee", lat: "", lng: "",
-  imageUrl: "", mapsLink: "",
+  imageUrl: "", locationType: "entrance", locationLabel: "", locationVerified: false,
 };
 
 export default function AdminPage() {
@@ -374,10 +376,12 @@ function SpotForm({ municipalities, categories, bgOptions, initialData, onSpotAd
     badge:        initialData.badge        || "",
     emoji:        initialData.emoji        || "📍",
     bg:           initialData.bg           || "#e8f5ee",
-    lat:          initialData.lat          || "",
-    lng:          initialData.lng          || "",
+    lat:          initialData.lat          ?? "",
+    lng:          initialData.lng          ?? "",
     imageUrl:     initialData.imageUrl     || "",
-    mapsLink:     "",
+    locationType: initialData.locationType || "destination",
+    locationLabel: initialData.locationLabel || "",
+    locationVerified: initialData.locationVerified === true,
   } : EMPTY_FORM);
 
   const [submitting, setSubmitting] = useState(false);
@@ -387,20 +391,13 @@ function SpotForm({ municipalities, categories, bgOptions, initialData, onSpotAd
   const [dragOver,   setDragOver]   = useState(false);
   const fileInputRef                = useRef(null);
 
-  const handleChange = (e) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value, ...(["lat", "lng", "locationType", "locationLabel"].includes(name) ? { locationVerified: false } : {}) }));
+  };
 
-  const handleMapsLink = (e) => {
-    const val = e.target.value;
-    setForm((prev) => ({ ...prev, mapsLink: val }));
-    const match = val.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (match) {
-      setForm((prev) => ({
-        ...prev,
-        mapsLink: val,
-        lat:      parseFloat(match[1]),
-        lng:      parseFloat(match[2]),
-      }));
-    }
+  const handlePickLocation = ({ lat, lng }) => {
+    setForm((prev) => ({ ...prev, lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)), locationVerified: false }));
   };
 
   const handleImageUpload = async (file) => {
@@ -437,14 +434,21 @@ function SpotForm({ municipalities, categories, bgOptions, initialData, onSpotAd
     if (!form.name.trim() || !form.municipality || !form.category || !form.fee.trim() || !form.hours.trim() || !form.desc.trim()) {
       setError("Please fill out all required fields marked with *"); return;
     }
+    let locationFields;
+    try {
+      locationFields = getLocationFields(form);
+    } catch (err) {
+      setError(err.message); return;
+    }
+    const spotData = { ...form, ...locationFields };
     setSubmitting(true);
     try {
       if (isEditing) {
-        await updateSpot(initialData.id, form);
+        await updateSpot(initialData.id, spotData);
         setSuccess("Spot updated successfully!");
-        onSpotUpdated({ ...initialData, ...form });
+        onSpotUpdated({ ...initialData, ...spotData });
       } else {
-        const newSpot = await addSpot(form);
+        const newSpot = await addSpot(spotData);
         setSuccess(`"${form.name}" published successfully!`);
         onSpotAdded(newSpot);
         handleClear();
@@ -542,13 +546,33 @@ function SpotForm({ municipalities, categories, bgOptions, initialData, onSpotAd
         </div>
 
         <div className="form-field" style={{ marginBottom: "1.25rem" }}>
-          <label>Google Maps Link <span style={{ color: "var(--muted)", fontWeight: 400 }}>(auto-fills GPS)</span></label>
-          <input type="text" name="mapsLink" placeholder="Paste Google Maps URL here..." value={form.mapsLink || ""} onChange={handleMapsLink} />
-          {form.lat && form.lng && (
-            <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: "#10b981", fontWeight: 600, display: "flex", alignItems: "center", gap: "4px" }}>
-              <MapPin size={14}/> GPS: {form.lat}, {form.lng}
+          <label>Destination pin</label>
+          <DestinationMap editable locations={[{ ...form, id: "admin-pin" }]} onLocationChange={handlePickLocation} title="Choose the visitor location" />
+          <div className="location-fields">
+            <div className="form-field">
+              <label htmlFor="spot-latitude">Latitude</label>
+              <input id="spot-latitude" type="number" name="lat" min="-90" max="90" step="any" placeholder="e.g. 14.856" value={form.lat} onChange={handleChange} />
             </div>
-          )}
+            <div className="form-field">
+              <label htmlFor="spot-longitude">Longitude</label>
+              <input id="spot-longitude" type="number" name="lng" min="-180" max="180" step="any" placeholder="e.g. 120.811" value={form.lng} onChange={handleChange} />
+            </div>
+            <div className="form-field">
+              <label htmlFor="spot-location-type">Pin represents</label>
+              <select id="spot-location-type" name="locationType" value={form.locationType} onChange={handleChange}>
+                {Object.entries(LOCATION_TYPES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div className="form-field">
+              <label htmlFor="spot-location-label">Entrance or landmark description</label>
+              <input id="spot-location-label" name="locationLabel" placeholder="e.g. Main gate beside the parking area" value={form.locationLabel} onChange={handleChange} />
+            </div>
+          </div>
+          <label className="location-confirm">
+            <input type="checkbox" checked={form.locationVerified} disabled={!getCoordinates(form)} onChange={(e) => setForm((prev) => ({ ...prev, locationVerified: e.target.checked }))} />
+            <span>I have checked that this pin marks the correct visitor location.</span>
+          </label>
+          <p className="location-note">Leave both coordinates blank if the location is unknown. It will be shown as unavailable rather than using a default pin. Changing the location requires confirming it again.</p>
         </div>
 
         <div className="form-field" style={{ marginBottom: "1.5rem" }}>

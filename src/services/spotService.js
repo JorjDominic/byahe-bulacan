@@ -13,6 +13,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "./firebase";
+import { getLocationFields } from "../utils/coordinates";
 
 // ─── Cache ────────────────────────────────────────────────
 let spotsCache = null;
@@ -97,8 +98,7 @@ export async function addSpot(formData) {
     bg:           formData.bg                 || "#e8f5ee",
     emoji:        formData.emoji              || "📍",
     imageUrl:     formData.imageUrl           || "",
-    lat:          parseFloat(formData.lat)    || 14.8433,
-    lng:          parseFloat(formData.lng)    || 120.8114,
+    ...getLocationFields(formData),
     rating:       0,
     reviews:      0,
     createdAt:    serverTimestamp(),
@@ -116,6 +116,7 @@ export async function updateSpot(id, data) {
     : parseInt(data.fee?.replace(/[^0-9]/g, ""), 10) || 0;
   await updateDoc(doc(db, "spots", id), {
     ...data,
+    ...getLocationFields(data),
     feeNum,
     updatedAt: serverTimestamp(),
   });

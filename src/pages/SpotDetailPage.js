@@ -3,11 +3,13 @@ import { useApp } from "../context/AppContext";
 import { getTodayPH, getPHTime, timeToMinutes, minutesToTime, getTripStatus } from "../hooks/useItinerary";
 import ROUTES from "../constants/routes";
 import Stars from "../components/Stars";
+import TravelPlanner from "../components/TravelPlanner";
+import { getCoordinates, LOCATION_TYPES } from "../utils/coordinates";
 import { getSpotById, getNearbySpots, getReviewsForSpot, addReview } from "../services/spotService";
 
 // SVG Icons
 import { 
-  ArrowLeft, MapPin, Wallet, Gift, Clock, Map, Droplets, Wind, Lock, Star, Send 
+  ArrowLeft, MapPin, Wallet, Gift, Clock, Droplets, Wind, Lock, Star, Send
 } from "lucide-react";
 
 const ALL_TIMES = [
@@ -183,13 +185,6 @@ export default function SpotDetailPage({ spotId }) {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleOpenMaps = () => {
-    const q = spot.lat && spot.lng
-      ? spot.lat + "," + spot.lng
-      : encodeURIComponent(spot.name + " " + spot.municipality + " Bulacan");
-    window.open("https://www.google.com/maps/search/?api=1&query=" + q, "_blank");
   };
 
   if (loading) return (
@@ -435,16 +430,13 @@ export default function SpotDetailPage({ spotId }) {
               </div>
 
               {/* Location */}
-              {spot.lat && spot.lng && (
-                <div style={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: "16px", padding: "1.5rem", marginTop: "1rem" }}>
-                  <h4 style={{ margin: "0 0 1rem 0", fontSize: "1.1rem", color: "var(--text-main)", display: "flex", alignItems: "center", gap: "6px" }}><Map size={18} color="var(--pri)"/> Location Map</h4>
-                  <div style={{ fontSize: "0.9rem", color: "var(--text-main)", marginBottom: "0.25rem", fontWeight: 600 }}>{spot.municipality + ", Bulacan"}</div>
-                  <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginBottom: "1rem" }}>{"GPS: " + spot.lat + ", " + spot.lng}</div>
-                  <button className="btn btn-sec" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }} onClick={handleOpenMaps}>
-                    ↗ Open in Google Maps
-                  </button>
-                </div>
-              )}
+              <div style={{ marginTop: "1rem" }}>
+                <TravelPlanner locations={[spot]} />
+                <p className="location-note">{spot.municipality}, Bulacan{getCoordinates(spot) && " · " + (LOCATION_TYPES[spot.locationType] || LOCATION_TYPES.destination)}{spot.locationLabel && " — " + spot.locationLabel}</p>
+                {getCoordinates(spot) && <p className={"location-note" + (spot.locationVerified === true ? "" : " location-note--unverified")}>
+                  {spot.locationVerified === true ? "Pin verified by an administrator." : "This pin has not been verified. Confirm the visitor entrance before visiting."}
+                </p>}
+              </div>
             </div>
           </div>
         </div>

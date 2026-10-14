@@ -4,6 +4,12 @@ Interactive Travel Directory with User Reviews and Itinerary Planning
 
 ---
 
+## Embedded maps and directions
+
+Destination maps, itinerary pins, an admin location picker, and driving/walking
+routes are available inside the app. See [Google Maps setup](docs/google-maps-setup.md)
+for Google Cloud and Vercel configuration and destination review steps.
+
 ## Quick Start
 
 ### 1. Create a new Vite + React project

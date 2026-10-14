@@ -1,0 +1,19 @@
+.travel-planner { min-width: 0; }
+.travel-planner__body { padding: 1.15rem; border: 1px solid var(--border); border-radius: 12px; margin-top: .75rem; background: var(--bg-secondary, var(--surface)); color: var(--text-main, var(--text)); }
+.travel-planner__body h4 { display: flex; align-items: center; gap: .5rem; margin: 0 0 1rem; font-size: 1.05rem; }
+.travel-planner__field { margin: .9rem 0; }
+.travel-planner__field label { display: block; margin-bottom: .4rem; font-size: .85rem; font-weight: 600; }
+.travel-planner__field input, .travel-planner__field select, .travel-planner__field textarea { width: 100%; padding: .7rem; background: var(--bg-main, var(--bg)); color: var(--text-main, var(--text)); border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: .9rem; }
+.travel-planner__modes, .travel-planner__actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.travel-planner__actions .btn, .travel-planner__modes .btn { display: inline-flex; align-items: center; gap: .4rem; }
+.travel-planner__modes [aria-pressed="true"] { background: var(--pri); color: #fff; }
+.travel-planner button:disabled { opacity: .55; cursor: default; }
+.travel-planner__error { padding: .8rem; margin-top: 1rem; border-radius: 8px; background: #ef444414; color: #dc2626; font-size: .9rem; line-height: 1.6; }
+.travel-planner__result { border-top: 1px solid var(--border); margin-top: 1rem; padding-top: 1rem; }
+.travel-planner__summary { font-weight: 700; font-size: 1.1rem; }
+.travel-steps { padding-left: 1.6rem; margin-top: 1rem; }
+.travel-steps li { padding: 0 0 1rem .25rem; line-height: 1.6; font-size: .9rem; }
+.travel-steps li::marker { color: var(--pri); font-weight: 700; }
+.travel-steps small { color: var(--muted); }
+.travel-steps__details { margin: .4rem 0; padding: .7rem; border-radius: 8px; background: var(--bg-main, var(--bg)); }
+.travel-planner input:focus-visible, .travel-planner select:focus-visible, .travel-planner button:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }

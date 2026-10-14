@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import ROUTES from "../constants/routes";
+import TravelPlanner from "../components/TravelPlanner";
+import { getCoordinates } from "../utils/coordinates";
 import { saveItinerary, addPost, addReview } from "../services/spotService";
 
 // 1. Import all necessary SVG Icons from lucide-react!
@@ -94,7 +96,7 @@ function getTripStatus(tripDate, manualDone) {
 }
 
 const TRIP_CHECKLIST = [
-  { id: "route", label: "Route checked in Google Maps", helper: "Confirm travel time and pin location before leaving." },
+  { id: "route", label: "Route checked in the trip map", helper: "Confirm travel time and pin location before leaving." },
   { id: "budget", label: "Budget and entrance fees prepared", helper: "Bring extra cash for food, parking, and pasalubong." },
   { id: "weather", label: "Weather and outfit checked", helper: "Prepare umbrella, water, and comfortable clothes." },
   { id: "contacts", label: "Emergency contacts saved", helper: "Save local emergency numbers and share your itinerary." },
@@ -157,6 +159,8 @@ export default function ItineraryPage() {
   const [saved,        setSaved]        = useState(false);
   const [error,        setError]        = useState("");
   const [userLocation, setUserLocation] = useState(null);
+  const [selectedMapSpotId, setSelectedMapSpotId] = useState(null);
+  const mapPanelRef = useRef(null);
   const [editingStopId,setEditingStopId]= useState(null);
   const [manualDone,   setManualDone]   = useState(false);
   const [showReview,   setShowReview]   = useState(false);
@@ -229,11 +233,10 @@ export default function ItineraryPage() {
     });
   };
 
-  const handleOpenMaps = (spot) => {
-    const q = spot.lat && spot.lng
-      ? spot.lat + "," + spot.lng
-      : encodeURIComponent(spot.name + " " + spot.municipality + " Bulacan");
-    window.open("https://www.google.com/maps/search/?api=1&query=" + q, "_blank");
+  const handleViewMap = (spot) => {
+    setSelectedMapSpotId(spot.id);
+    mapPanelRef.current?.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+    mapPanelRef.current?.focus({ preventScroll: true });
   };
 
   const getDistance = (lat1, lng1, lat2, lng2) => {
@@ -354,6 +357,15 @@ export default function ItineraryPage() {
       </div>
 
       <div className="container" style={{ paddingTop: "2rem", paddingBottom: "2rem" }}>
+        {count > 0 && <section ref={mapPanelRef} tabIndex={-1} className="itinerary-map-panel" aria-label="Trip destinations map">
+          <h3>Your destinations on the map</h3>
+          <TravelPlanner locations={sortedItinerary} selectedId={selectedMapSpotId} onSelect={setSelectedMapSpotId} />
+          <div className="itinerary-map-list">
+            {sortedItinerary.map((stop, index) => <button type="button" key={stop.id} className="btn btn-sec btn-sm" aria-pressed={selectedMapSpotId === stop.id} onClick={() => setSelectedMapSpotId(stop.id)} disabled={!getCoordinates(stop)}>{index + 1}. {stop.name}{!getCoordinates(stop) && " — location unavailable"}</button>)}
+          </div>
+          {sortedItinerary.some((stop) => !getCoordinates(stop)) && <p className="location-note">Some destinations do not have an exact location yet and are not shown on the map.</p>}
+          {sortedItinerary.some((stop) => getCoordinates(stop) && stop.locationVerified !== true) && <p className="location-note location-note--unverified">Some pins have not been verified. Confirm visitor entrances before your trip.</p>}
+        </section>}
         <div className="itin-builder">
 
           {/* ── Left ─────────────────────────────────────── */}
@@ -500,14 +512,14 @@ export default function ItineraryPage() {
                             <Wallet size={14} style={{ marginLeft: "4px" }} /> {s.fee}
                           </div>
                           
-                          {userLocation && s.lat && s.lng && (
+                          {userLocation && getCoordinates(s) && (
                             <div style={{ fontSize: "0.8rem", color: "#10b981", display: "flex", alignItems: "center", gap: "4px", marginBottom: "0.25rem" }}>
                               <Navigation size={12} /> {getDistance(userLocation.lat, userLocation.lng, s.lat, s.lng)} km from you
                             </div>
                           )}
                           
-                          <button onClick={() => handleOpenMaps(s)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "0.8rem", color: "#3b82f6", padding: 0, display: "flex", alignItems: "center", gap: "4px", fontWeight: 500, marginTop: "0.5rem" }}>
-                            <Map size={14} /> Open in Google Maps
+                          <button onClick={() => handleViewMap(s)} disabled={!getCoordinates(s)} style={{ background: "none", border: "none", cursor: getCoordinates(s) ? "pointer" : "default", opacity: getCoordinates(s) ? 1 : 0.6, fontSize: "0.8rem", color: "#3b82f6", padding: 0, display: "flex", alignItems: "center", gap: "4px", fontWeight: 500, marginTop: "0.5rem" }}>
+                            <Map size={14} /> {getCoordinates(s) ? "View Map" : "Location unavailable"}
                           </button>
                         </div>
 
