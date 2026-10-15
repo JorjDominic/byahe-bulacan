@@ -5,12 +5,12 @@ import {
   onAuthStateChanged,
   createUserWithEmailAndPassword,
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "../services/firebase";
 import { useApp } from "../context/AppContext";
 
 export function useAuth() {
-  const { login, logout: contextLogout } = useApp();
+  const { login, setPremium, logout: contextLogout } = useApp();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -107,9 +107,15 @@ export function useAuth() {
   };
 
   const initAuthListener = (onReady) => {
-    return onAuthStateChanged(auth, async (user) => {
+    let stopProfile;
+    let generation = 0;
+    const stopAuth = onAuthStateChanged(auth, async (user) => {
+      const currentGeneration = ++generation;
+      stopProfile?.();
+      stopProfile = undefined;
       if (user) {
         const profile = await fetchUserProfile(user.uid) || {};
+        if (currentGeneration !== generation) return;
         login(
           profile.role      || "user",
           profile.name      || "Traveler",
@@ -117,9 +123,20 @@ export function useAuth() {
           profile.avatarUrl || "",
           profile.isPremium || false // Pass premium status
         );
+        stopProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
+          if (currentGeneration === generation) {
+            setPremium(snapshot.exists() && snapshot.data().isPremium === true);
+          }
+        }, (err) => {
+          if (currentGeneration === generation) setPremium(false);
+          console.error("Premium status listener failed:", err);
+        });
+      } else {
+        setPremium(false);
       }
       onReady?.();
     });
+    return () => { generation += 1; stopAuth(); stopProfile?.(); };
   };
 
   return { signIn, signUp, signOutUser, initAuthListener, error, setError, loading };

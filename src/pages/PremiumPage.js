@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
 import ROUTES from "../constants/routes";
+import { startPremiumCheckout } from "../services/premiumCheckout";
 
 export default function PremiumPage() {
-  const { navigate, userId, userName, userEmail, isPremium } = useApp();
+  const { navigate, userId, isPremium } = useApp();
   const [loading, setLoading] = useState(false);
 
   const handleUpgrade = async () => {
@@ -14,22 +15,10 @@ export default function PremiumPage() {
     
     setLoading(true);
     try {
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId, userName, userEmail })
-      });
-      
-      const data = await response.json();
-      
-      if (data?.data?.attributes?.checkout_url) {
-        window.location.href = data.data.attributes.checkout_url;
-      } else {
-        alert("Failed to generate checkout link.");
-      }
+      await startPremiumCheckout();
     } catch (error) {
       console.error(error);
-      alert("Error connecting to payment gateway.");
+      alert(error.message || "Error connecting to payment gateway.");
     } finally {
       setLoading(false);
     }

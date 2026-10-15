@@ -32,7 +32,7 @@ function appReducer(state, action) {
       return { ...initialState, page: ROUTES.LANDING };
     case "SET_AVATAR":
       return { ...state, avatarUrl: action.payload };
-    case "SET_PREMIUM": // Added case for mock upgrading
+    case "SET_PREMIUM":
       return { ...state, isPremium: action.payload };
     case "ADD_TO_ITINERARY": {
       const { date, spot } = action.payload;
