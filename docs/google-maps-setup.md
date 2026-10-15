@@ -77,12 +77,11 @@ Firestore rules and guide index. Vercel deployment does **not** deploy these.
 Deploy them to the same project as `src/services/firebase.js`:
 
 ```powershell
-firebase deploy --only firestore:rules,firestore:indexes --project biyahe-bulacan
+firebase deploy --only firestore:rules,firestore:indexes --project byahe-bulacan-v2
 ```
 
-The current runtime Firebase project is `biyahe-bulacan`; the repository's
-`.firebaserc` default points to a different project. Use the explicit project
-above, or update both the app configuration and deployment target deliberately.
+The runtime Firebase project and `.firebaserc` default both target
+`byahe-bulacan-v2`. Use the explicit project above for deployment.
 Wait for the `commuteGuides` index to finish building before testing public
 guide queries.
 

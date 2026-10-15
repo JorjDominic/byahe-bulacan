@@ -7,8 +7,10 @@ been changed.
 
 ## What is blocking the system now
 
-The app connects to Firebase project **`biyahe-bulacan`**. The person deploying
-the website has said they do not have access to that Firebase project.
+The app now connects to Firebase project **`byahe-bulacan-v2`**, as selected by
+the owner. The previous configuration used `biyahe-bulacan`; earlier access
+findings below refer to that project. Access to v2 and its deployed services
+still needs verification.
 
 Google Maps and Firebase are separate services. The Google Maps API key enables
 map and routing requests. Firebase stores accounts, destinations, reviews,
@@ -66,7 +68,7 @@ Google Maps key does not grant project administration rights either.
 
 ### Owner action
 
-Identify the owner of `biyahe-bulacan`. They can either:
+Identify the owner of `byahe-bulacan-v2`. They can either:
 
 1. Deploy the reviewed rules and indexes themselves; or
 2. Invite the maintainer's Google account and grant permissions appropriate for
@@ -80,27 +82,25 @@ The local Firebase CLI also failed its project-listing check with an HTTP 401
 diagnostic. An authorized maintainer should reauthenticate before deployment.
 The exact cause of that CLI authorization failure was not established.
 
-## 2. Conflicting project targets
+## 2. Project targets aligned in source
 
 The repository currently contains:
 
 | File | Target |
 | --- | --- |
-| `src/services/firebase.js` | `projectId: "biyahe-bulacan"` |
+| `src/services/firebase.js` | `projectId: "byahe-bulacan-v2"` |
 | `.firebaserc` | Default CLI project: `byahe-bulacan-v2` |
 | `firebase.json` | References `firestore.rules`, `firestore.indexes.json`, and the `functions` source directory |
 
-Notice that these project IDs differ in both spelling and suffix. They are not
-aliases for the same database. A deployment using the CLI default may update a
-different project from the one the website reads.
+The app configuration and CLI default now target the same project. Redeploy
+the website to apply this configuration to the hosted app.
 
 ### Required resolution
 
-The owner must confirm the intended production project. If it remains
-`biyahe-bulacan`, use an explicit target during deployment and later align
-`.firebaserc` with that decision. If `byahe-bulacan-v2` is the intended project,
-the app configuration and data must also be deliberately migrated; changing
-only the CLI target will not move the app's accounts or records.
+The owner selected `byahe-bulacan-v2` and supplied its web app configuration.
+Changing configuration does not migrate accounts or records from
+`biyahe-bulacan`. Confirm the required users and data exist in v2, and deploy
+rules, indexes, and functions explicitly to `byahe-bulacan-v2`.
 
 The Firebase functions use `admin.initializeApp()`, so their database target
 follows the environment in which the owner deploys them. Deploying the webhook
@@ -152,7 +152,7 @@ Then, from an authorized account:
 ```powershell
 cd C:\Users\12DOM03\byahebulacan
 firebase login --reauth
-firebase deploy --only firestore:rules,firestore:indexes --project biyahe-bulacan
+firebase deploy --only firestore:rules,firestore:indexes --project byahe-bulacan-v2
 ```
 
 Use this project ID only after confirming it is the intended production target.
