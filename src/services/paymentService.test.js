@@ -1,6 +1,6 @@
 import { httpsCallable } from "firebase/functions";
 import { onSnapshot } from "firebase/firestore";
-import { startPremiumCheckout, waitForPremiumAccess } from "./paymentService";
+import { startPremiumCheckout, verifyPremiumPayment, waitForPremiumAccess } from "./paymentService";
 
 jest.mock("./firebase", () => ({ db: {}, functions: {} }));
 jest.mock("firebase/functions", () => ({ httpsCallable: jest.fn() }));
@@ -23,6 +23,15 @@ test("an immediately verified profile releases the subscription and timer", asyn
   expect(await waitForPremiumAccess("user")).toBe(true);
   expect(stop).toHaveBeenCalledTimes(1);
   expect(jest.getTimerCount()).toBe(0);
+});
+
+test("payment confirmation uses the server result rather than the redirect", async () => {
+  const verify = jest.fn().mockResolvedValueOnce({ data: { paid: false } }).mockResolvedValueOnce({ data: { paid: true } });
+  httpsCallable.mockReturnValue(verify);
+  expect(await verifyPremiumPayment("order_1")).toBe(false);
+  expect(await verifyPremiumPayment("order_1")).toBe(true);
+  expect(httpsCallable).toHaveBeenCalledWith({}, "verifyPremiumPayment");
+  expect(verify).toHaveBeenCalledWith({ orderId: "order_1" });
 });
 test("timeout and read failures release the subscription without granting access", async () => {
   const stop = jest.fn(); onSnapshot.mockReturnValue(stop);

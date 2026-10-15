@@ -1,5 +1,8 @@
 const { createHmac, timingSafeEqual } = require("node:crypto");
 
+const validId = (value) => typeof value === "string" && value.length > 0 && value.length <= 128
+  && !value.includes("/") && value !== "." && value !== "..";
+
 function verifySignature(rawBody, header, secret, mode, now = Date.now()) {
   if (!Buffer.isBuffer(rawBody) || typeof header !== "string" || !secret) return false;
   const parts = Object.fromEntries(header.split(",").map((part) => part.trim().split("=")));
@@ -10,6 +13,31 @@ function verifySignature(rawBody, header, secret, mode, now = Date.now()) {
   if (!/^[a-f\d]{64}$/i.test(signature || "")) return false;
   const expected = createHmac("sha256", secret).update(parts.t + ".").update(rawBody).digest();
   return timingSafeEqual(expected, Buffer.from(signature, "hex"));
+}
+
+async function fulfillPremiumPayment({ db, orderId, session, paid, serverTimestamp }) {
+  const orderRef = db.collection("premiumOrders").doc(orderId);
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(orderRef);
+    if (!snapshot.exists) throw new Error("Premium order is missing");
+    const order = snapshot.data();
+    if (order.checkoutSessionId !== session.id) throw new Error("Checkout session mismatch");
+    if (order.amount !== 29900 || order.currency !== "PHP" || !validId(order.userId)) {
+      throw new Error("Premium order does not match payment");
+    }
+    const userRef = db.collection("users").doc(order.userId);
+    const user = await transaction.get(userRef);
+    if (!user.exists) throw new Error("Payment user profile is missing");
+    if (order.status === "paid" && user.data().isPremium === true) return;
+    const now = serverTimestamp();
+    transaction.update(userRef, {
+      isPremium: true, premiumOrderId: orderId,
+      ...(!user.data().premiumDate ? { premiumDate: now } : {}),
+    });
+    transaction.update(orderRef, {
+      status: "paid", paymentId: paid.id, paidAt: now, updatedAt: now,
+    });
+  });
 }
 
 function createWebhookHandler({ db, secret, mode, serverTimestamp, logger = console }) {
@@ -28,8 +56,6 @@ function createWebhookHandler({ db, secret, mode, serverTimestamp, logger = cons
     const session = envelope.data;
     const attributes = session?.attributes;
     const orderId = attributes?.reference_number;
-    const validId = (value) => typeof value === "string" && value.length > 0 && value.length <= 128
-      && !value.includes("/") && value !== "." && value !== "..";
     const paid = Array.isArray(attributes?.payments)
       ? attributes.payments.find((payment) => payment?.attributes?.status === "paid") : null;
     const livemode = envelope?.livemode ?? attributes?.livemode;
@@ -40,29 +66,7 @@ function createWebhookHandler({ db, secret, mode, serverTimestamp, logger = cons
       return res.status(400).send("Payment does not match Premium checkout");
     }
     try {
-      // The server-created order binds the payment to its authenticated owner.
-      const orderRef = db.collection("premiumOrders").doc(orderId);
-      await db.runTransaction(async (transaction) => {
-        const snapshot = await transaction.get(orderRef);
-        if (!snapshot.exists) throw new Error("Premium order is missing");
-        const order = snapshot.data();
-        if (order.checkoutSessionId !== session.id) throw new Error("Checkout session mismatch");
-        if (order.amount !== 29900 || order.currency !== "PHP" || !validId(order.userId)) {
-          throw new Error("Premium order does not match payment");
-        }
-        if (order.status === "paid") return;
-        const userRef = db.collection("users").doc(order.userId);
-        const user = await transaction.get(userRef);
-        if (!user.exists) throw new Error("Payment user profile is missing");
-        const now = serverTimestamp();
-        transaction.update(userRef, {
-          isPremium: true, premiumOrderId: orderId,
-          ...(!user.data().premiumDate ? { premiumDate: now } : {}),
-        });
-        transaction.update(orderRef, {
-          status: "paid", paymentId: paid.id, paidAt: now, updatedAt: now,
-        });
-      });
+      await fulfillPremiumPayment({ db, orderId, session, paid, serverTimestamp });
       return res.status(200).send("Payment recorded");
     } catch (error) {
       logger.error("Premium payment could not be saved", { eventId: event.id, message: error.message });
@@ -71,4 +75,4 @@ function createWebhookHandler({ db, secret, mode, serverTimestamp, logger = cons
   };
 }
 
-module.exports = { verifySignature, createWebhookHandler };
+module.exports = { verifySignature, createWebhookHandler, fulfillPremiumPayment };

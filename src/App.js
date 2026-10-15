@@ -4,7 +4,7 @@ import { useApp } from "./context/AppContext";
 import ROUTES from "./constants/routes";
 import { useAuth } from "./hooks/useAuth";
 import { getUserItineraries } from "./services/spotService";
-import { waitForPremiumAccess } from "./services/paymentService";
+import { verifyPremiumPayment, waitForPremiumAccess } from "./services/paymentService";
 
 // Components
 import Nav from "./components/Nav";
@@ -53,7 +53,17 @@ export default function App() {
         window.history.replaceState({}, document.title, window.location.pathname);
         if (userId) {
           try {
-            const verified = await waitForPremiumAccess(userId);
+            let verified = false;
+            const orderId = urlParams.get("order");
+            if (orderId) {
+              try {
+                verified = await verifyPremiumPayment(orderId);
+              } catch (error) {
+                console.error("Payment lookup failed; waiting for webhook:", error);
+              }
+            }
+            if (cancelled) return;
+            if (!verified) verified = await waitForPremiumAccess(userId);
             if (cancelled) return;
             if (verified) {
               setPremium(true);

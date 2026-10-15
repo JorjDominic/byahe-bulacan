@@ -4,6 +4,7 @@ const { defineSecret } = require("firebase-functions/params");
 const { HttpsError, onCall, onRequest } = require("firebase-functions/v2/https");
 const { cleanBaseUrl } = require("./paymongo");
 const { createWebhookHandler } = require("./paymentWebhook");
+const { createPaymentVerifier } = require("./verifyPremiumPayment");
 
 admin.initializeApp();
 
@@ -14,6 +15,14 @@ const DEFAULT_APP_BASE_URL = "https://byahe-bulacan-743h.vercel.app";
 
 const PREMIUM_AMOUNT = 29900;
 const PREMIUM_CURRENCY = "PHP";
+
+exports.verifyPremiumPayment = onCall(
+  { region: "us-central1", invoker: "public", secrets: [PAYMONGO_SECRET_KEY] },
+  createPaymentVerifier({
+    db, getSecret: () => PAYMONGO_SECRET_KEY.value(),
+    serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+  })
+);
 
 exports.createPremiumCheckout = onCall(
   { invoker: "public", secrets: [PAYMONGO_SECRET_KEY] },

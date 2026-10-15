@@ -46,13 +46,13 @@ when deployment completes. Do not accept payments until setup finishes.
 firebase functions:secrets:set PAYMONGO_WEBHOOK_SECRET --project byahe-bulacan-v2
 ```
 
-Paste the webhook signing secret. Then deploy both functions:
+Paste the webhook signing secret. Then deploy all three payment functions:
 
 ```powershell
-firebase deploy --only "functions:createPremiumCheckout,functions:paymongoWebhook" --project byahe-bulacan-v2
+firebase deploy --only "functions:createPremiumCheckout,functions:paymongoWebhook,functions:verifyPremiumPayment" --project byahe-bulacan-v2
 ```
 
-Confirm both functions deploy in us-central1. If Firebase prints a different public
+Confirm all three functions deploy in us-central1. If Firebase prints a different public
 webhook URL, use that exact URL in PayMongo. A browser GET returning 405 is expected;
 PayMongo sends signed POST requests.
 
@@ -91,6 +91,12 @@ Verify:
 Only signed confirmations with the matching amount, currency, mode, order and
 session grant access. Both documented PayMongo event envelope formats are supported.
 A URL containing payment=success cannot grant Premium by itself.
+
+On return, the website also calls verifyPremiumPayment with the order ID. This
+function checks the signed-in user's order directly with PayMongo and grants
+Premium only after validating the paid checkout. It can recover from a delayed
+or missed webhook using the existing PAYMONGO_SECRET_KEY. It requires no new
+secret. Redeploy the website too so this verification runs after checkout.
 
 npm start serves React. Firebase callable functions still need deployment for
 local checkout. The return domain remains the requested production site.

@@ -10,6 +10,12 @@ export async function startPremiumCheckout() {
   return checkoutUrl;
 }
 
+export async function verifyPremiumPayment(orderId) {
+  const verify = httpsCallable(functions, "verifyPremiumPayment");
+  const response = await verify({ orderId });
+  return response.data?.paid === true;
+}
+
 export function waitForPremiumAccess(userId, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     let settled = false;
