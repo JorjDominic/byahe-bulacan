@@ -15,13 +15,10 @@ export function useAuth() {
   const [loading, setLoading] = useState(false);
 
   const fetchUserProfile = async (uid) => {
-    try {
-      const snap = await getDoc(doc(db, "users", uid));
-      if (snap.exists()) return snap.data();
-    } catch (err) {
-      console.error("fetchUserProfile error:", err);
-    }
-    return null;
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists()
+      ? { status: "found", profile: snap.data() }
+      : { status: "missing", profile: null };
   };
 
   const signIn = async (email, password) => {
@@ -29,11 +26,12 @@ export function useAuth() {
     setLoading(true);
     try {
       const result  = await signInWithEmailAndPassword(auth, email, password);
-      let profile = await fetchUserProfile(result.user.uid);
+      const profileResult = await fetchUserProfile(result.user.uid);
+      let profile = profileResult.profile;
 
       // Repair older accounts that were created in Authentication while the
       // expired Firestore rules prevented their profile document from saving.
-      if (!profile) {
+      if (profileResult.status === "missing") {
         profile = {
           name: result.user.displayName || "Traveler",
           role: "user",
@@ -107,34 +105,52 @@ export function useAuth() {
   };
 
   const initAuthListener = (onReady) => {
+    let isInitialCheck = true;
     let stopProfile;
     let generation = 0;
     const stopAuth = onAuthStateChanged(auth, async (user) => {
       const currentGeneration = ++generation;
       stopProfile?.();
       stopProfile = undefined;
-      if (user) {
-        const profile = await fetchUserProfile(user.uid) || {};
-        if (currentGeneration !== generation) return;
-        login(
-          profile.role      || "user",
-          profile.name      || "Traveler",
-          user.uid,
-          profile.avatarUrl || "",
-          profile.isPremium || false // Pass premium status
-        );
-        stopProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
-          if (currentGeneration === generation) {
-            setPremium(snapshot.exists() && snapshot.data().isPremium === true);
+      let initializationError = null;
+      try {
+        if (user) {
+          const result = await fetchUserProfile(user.uid);
+          if (currentGeneration !== generation) return;
+          if (result.status === "missing") {
+            throw Object.assign(new Error("Your account profile is missing. Sign out and sign in again to repair it."), { code: "profile-missing" });
           }
-        }, (err) => {
-          if (currentGeneration === generation) setPremium(false);
-          console.error("Premium status listener failed:", err);
-        });
-      } else {
+          const profile = result.profile;
+          login(
+            profile.role      || "user",
+            profile.name      || "Traveler",
+            user.uid,
+            profile.avatarUrl || "",
+            profile.isPremium || false
+          );
+          stopProfile = onSnapshot(doc(db, "users", user.uid), (snapshot) => {
+            if (currentGeneration === generation) {
+              setPremium(snapshot.exists() && snapshot.data().isPremium === true);
+            }
+          }, (err) => {
+            if (currentGeneration === generation) setPremium(false);
+            console.error("Premium status listener failed:", err);
+          });
+        } else {
+          setPremium(false);
+        }
+      } catch (err) {
+        if (currentGeneration !== generation) return;
+        initializationError = err;
         setPremium(false);
+        console.error("Profile restoration error:", err);
+        setError(getFriendlyError(err.code));
+      } finally {
+        if (currentGeneration === generation && isInitialCheck) {
+          isInitialCheck = false;
+          onReady?.(initializationError);
+        }
       }
-      onReady?.();
     });
     return () => { generation += 1; stopAuth(); stopProfile?.(); };
   };
@@ -157,7 +173,11 @@ function getFriendlyError(code) {
     case "auth/weak-password":
       return "Password must be at least 6 characters.";
     case "permission-denied":
-      return "Your account was created, but the profile could not be saved. Please contact support.";
+      return "Your profile could not be loaded because Firebase denied access. Please contact support.";
+    case "profile-missing":
+      return "Your account profile is missing. Sign out and sign in again to repair it.";
+    case "unavailable":
+      return "Firebase is temporarily unavailable. Check your connection and try again.";
     default:
       return "Something went wrong. Please try again.";
   }

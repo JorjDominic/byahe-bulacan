@@ -11,6 +11,7 @@ import {
   orderBy,
   where,
   serverTimestamp,
+  runTransaction,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { getLocationFields } from "../utils/coordinates";
@@ -22,18 +23,75 @@ export function clearSpotsCache() {
   spotsCache = null;
 }
 
+function normalizeSpotIdentity(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function spotCompleteness(spot) {
+  return [
+    spot.imageUrl,
+    spot.mapsLink,
+    spot.lat,
+    spot.lng,
+    spot.desc,
+    spot.hours,
+    spot.pasalubong,
+  ].filter((value) => value !== undefined && value !== null && value !== "").length;
+}
+
+function deduplicateSpots(spots) {
+  const unique = new Map();
+
+  for (const spot of spots) {
+    const key = [spot.name, spot.municipality]
+      .map(normalizeSpotIdentity)
+      .join("::");
+    const current = unique.get(key);
+
+    // Prefer the most complete copy, especially one with an uploaded image
+    // and map/location details. Ties keep the newest record from the input.
+    if (!current || spotCompleteness(spot) > spotCompleteness(current)) {
+      unique.set(key, spot);
+    }
+  }
+
+  return [...unique.values()];
+}
+
 // ─── Spots ────────────────────────────────────────────────
 export async function getAllSpots() {
   if (spotsCache) return spotsCache;
   try {
     const snap = await getDocs(collection(db, "spots"));
-    spotsCache = snap.docs
+    const spots = snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((spot) => spot.archived !== true)
       .sort((a, b) => {
         const aTime = a.createdAt?.toMillis?.() ?? 0;
         const bTime = b.createdAt?.toMillis?.() ?? 0;
         return bTime - aTime;
       });
+    let reviewRows = [];
+    try {
+      const reviewSnap = await getDocs(collection(db, "reviews"));
+      reviewRows = reviewSnap.docs.map((d) => d.data());
+    } catch (reviewError) {
+      console.warn("Review aggregates could not be refreshed:", reviewError);
+    }
+    const aggregates = reviewRows.reduce((result, review) => {
+      if (!review.spotId || !Number.isFinite(Number(review.stars))) return result;
+      const current = result.get(review.spotId) || { total: 0, count: 0 };
+      current.total += Number(review.stars);
+      current.count += 1;
+      result.set(review.spotId, current);
+      return result;
+    }, new Map());
+    spotsCache = deduplicateSpots(spots).map((spot) => {
+      const aggregate = aggregates.get(spot.id);
+      return aggregate
+        ? { ...spot, rating: Number((aggregate.total / aggregate.count).toFixed(1)), reviews: aggregate.count }
+        : { ...spot, rating: 0, reviews: 0 };
+    });
     return spotsCache;
   } catch (err) {
     console.error("getAllSpots error:", err);
@@ -133,11 +191,13 @@ export async function deleteSpot(id) {
 export async function getReviewsForSpot(spotId) {
   try {
     const snap = await getDocs(
-      query(collection(db, "reviews"), orderBy("createdAt", "desc"))
+      query(collection(db, "reviews"), where("spotId", "==", spotId))
     );
-    return snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((r) => r.spotId === spotId);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => {
+      const aTime = a.createdAt?.toMillis?.() ?? 0;
+      const bTime = b.createdAt?.toMillis?.() ?? 0;
+      return bTime - aTime;
+    });
   } catch (err) {
     console.error("getReviewsForSpot error:", err);
     return [];
@@ -154,6 +214,7 @@ export async function addReview(spotId, userId, userName, stars, text) {
     createdAt: serverTimestamp(),
   };
   const ref = await addDoc(collection(db, "reviews"), review);
+  spotsCache = null;
   return { id: ref.id, ...review };
 }
 
@@ -191,25 +252,29 @@ export async function addPost(userId, userName, initials, avatarBg, text, tag, i
 // ─── Likes ────────────────────────────────────────────────
 export async function likePost(postId, userId) {
   const likeId = postId + "_" + userId;
-  await setDoc(doc(db, "likes", likeId), {
-    postId,
-    userId,
-    createdAt: serverTimestamp(),
-  });
-  // Increment likes count on post
-  await updateDoc(doc(db, "posts", postId), {
-    likes: (await getDoc(doc(db, "posts", postId))).data()?.likes + 1 || 1,
+  const likeRef = doc(db, "likes", likeId);
+  const postRef = doc(db, "posts", postId);
+  return runTransaction(db, async (transaction) => {
+    const [likeSnap, postSnap] = await Promise.all([transaction.get(likeRef), transaction.get(postRef)]);
+    if (likeSnap.exists()) return false;
+    if (!postSnap.exists()) throw new Error("Post not found");
+    transaction.set(likeRef, { postId, userId, createdAt: serverTimestamp() });
+    transaction.update(postRef, { likes: Math.max(0, Number(postSnap.data().likes) || 0) + 1 });
+    return true;
   });
 }
 
 export async function unlikePost(postId, userId) {
   const likeId = postId + "_" + userId;
-  await deleteDoc(doc(db, "likes", likeId));
-  // Decrement likes count on post
-  const postSnap = await getDoc(doc(db, "posts", postId));
-  const current  = postSnap.data()?.likes || 0;
-  await updateDoc(doc(db, "posts", postId), {
-    likes: Math.max(0, current - 1),
+  const likeRef = doc(db, "likes", likeId);
+  const postRef = doc(db, "posts", postId);
+  return runTransaction(db, async (transaction) => {
+    const [likeSnap, postSnap] = await Promise.all([transaction.get(likeRef), transaction.get(postRef)]);
+    if (!likeSnap.exists()) return false;
+    if (!postSnap.exists()) throw new Error("Post not found");
+    transaction.delete(likeRef);
+    transaction.update(postRef, { likes: Math.max(0, (Number(postSnap.data().likes) || 0) - 1) });
+    return true;
   });
 }
 
@@ -229,11 +294,13 @@ export async function getUserLikes(userId) {
 export async function getCommentsForPost(postId) {
   try {
     const snap = await getDocs(
-      query(collection(db, "comments"), orderBy("createdAt", "asc"))
+      query(collection(db, "comments"), where("postId", "==", postId))
     );
-    return snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((c) => c.postId === postId);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => {
+      const aTime = a.createdAt?.toMillis?.() ?? 0;
+      const bTime = b.createdAt?.toMillis?.() ?? 0;
+      return aTime - bTime;
+    });
   } catch (err) {
     console.error("getCommentsForPost error:", err);
     return [];
@@ -241,56 +308,81 @@ export async function getCommentsForPost(postId) {
 }
 
 export async function addComment(postId, userId, userName, text) {
+  const commentRef = doc(collection(db, "comments"));
+  const postRef = doc(db, "posts", postId);
   const comment = {
     postId, userId,
     user:      userName,
     text:      text.trim(),
     createdAt: serverTimestamp(),
   };
-  const ref = await addDoc(collection(db, "comments"), comment);
-  // Increment comments count on post
-  const postSnap = await getDoc(doc(db, "posts", postId));
-  const current  = postSnap.data()?.comments || 0;
-  await updateDoc(doc(db, "posts", postId), {
-    comments: current + 1,
+  await runTransaction(db, async (transaction) => {
+    const postSnap = await transaction.get(postRef);
+    if (!postSnap.exists()) throw new Error("Post not found");
+    transaction.set(commentRef, comment);
+    transaction.update(postRef, { comments: (Number(postSnap.data().comments) || 0) + 1 });
   });
-  return { id: ref.id, ...comment };
+  return { id: commentRef.id, ...comment };
 }
 
 export async function deleteComment(commentId, postId) {
-  await deleteDoc(doc(db, "comments", commentId));
-  const postSnap = await getDoc(doc(db, "posts", postId));
-  const current  = postSnap.data()?.comments || 0;
-  await updateDoc(doc(db, "posts", postId), {
-    comments: Math.max(0, current - 1),
+  const commentRef = doc(db, "comments", commentId);
+  const postRef = doc(db, "posts", postId);
+  return runTransaction(db, async (transaction) => {
+    const [commentSnap, postSnap] = await Promise.all([transaction.get(commentRef), transaction.get(postRef)]);
+    if (!commentSnap.exists()) return false;
+    if (!postSnap.exists()) throw new Error("Post not found");
+    transaction.delete(commentRef);
+    transaction.update(postRef, { comments: Math.max(0, (Number(postSnap.data().comments) || 0) - 1) });
+    return true;
   });
 }
 
 // ─── Itineraries ──────────────────────────────────────────
-export async function saveItinerary(userId, tripName, spots) {
+function itineraryId(userId, date) {
+  return userId + "_" + date;
+}
+
+export async function saveItinerary(userId, date, itinerary) {
+  const spots = itinerary.spots || [];
   const itin = {
     userId,
-    tripName,
+    date,
+    tripName: itinerary.name || "Bulacan Trip",
     spots,
+    checklist: itinerary.checklist || {},
+    minGap: itinerary.minGap || 3,
+    status: itinerary.status || "planning",
+    manualDone: itinerary.manualDone === true,
     totalFee:  spots.reduce((sum, s) => sum + (s.feeNum || 0), 0),
-    createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
-  const ref = await addDoc(collection(db, "itineraries"), itin);
+  const ref = doc(db, "itineraries", itineraryId(userId, date));
+  const existing = await getDoc(ref);
+  await setDoc(ref, existing.exists() ? itin : { ...itin, createdAt: serverTimestamp() }, { merge: true });
   return { id: ref.id, ...itin };
 }
 
-export async function getUserItinerary(userId) {
-  try {
-    const snap = await getDocs(collection(db, "itineraries"));
-    const itins = snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((i) => i.userId === userId);
-    return itins[0] || null;
-  } catch (err) {
-    console.error("getUserItinerary error:", err);
-    return null;
-  }
+export async function getUserItineraries(userId) {
+  const snap = await getDocs(query(collection(db, "itineraries"), where("userId", "==", userId)));
+  return snap.docs.reduce((result, item) => {
+    const data = item.data();
+    if (!data.date) return result;
+    result[data.date] = {
+      name: data.tripName || "Bulacan Trip",
+      spots: data.spots || [],
+      checklist: data.checklist || {},
+      minGap: data.minGap || 3,
+      status: data.status || "planning",
+      manualDone: data.manualDone === true,
+      savedId: item.id,
+    };
+    return result;
+  }, {});
+}
+
+export async function deleteSavedItinerary(userId, date) {
+  await deleteDoc(doc(db, "itineraries", itineraryId(userId, date)));
 }
 
 // ─── ADMIN FETCHERS (Users at Reviews) ────────────────────

@@ -2,7 +2,11 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import DestinationMap from "./DestinationMap";
 import { loadGoogleMaps, subscribeToMapsErrors } from "../services/googleMaps";
 
-jest.mock("../services/googleMaps", () => ({ loadGoogleMaps: jest.fn(), subscribeToMapsErrors: jest.fn() }));
+jest.mock("../services/googleMaps", () => ({
+  hasGoogleMapsKey: jest.fn(() => true),
+  loadGoogleMaps: jest.fn(),
+  subscribeToMapsErrors: jest.fn(),
+}));
 
 let maps;
 let markers;

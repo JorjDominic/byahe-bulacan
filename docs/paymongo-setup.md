@@ -1,160 +1,137 @@
-# PayMongo Premium setup
+# PayMongo setup for the merged payment flow
 
-The website creates checkout sessions on Vercel. PayMongo sends payment
-confirmations to a Firebase function in `byahe-bulacan-v2`. Only a signed,
-matching PHP 299 payment can update `users/{uid}.isPremium` to `true`.
-The app listens for that change automatically. The return URL does not grant access.
+The final app creates checkout sessions and receives payment confirmations in
+Firebase. Vercel hosts the website. The old Vercel /api/checkout route is removed.
 
 ## 1. Prepare Firebase
 
-Open Firebase Console and select **byahe-bulacan-v2**.
+Select byahe-bulacan-v2. Enable Email/Password sign-in, confirm Firestore and the
+paying user's users/{uid} profile exist. Cloud Functions requires the Blaze plan.
+Accounts and records from the old project do not move automatically.
 
-- Enable Authentication > Email/Password if not already enabled.
-- Confirm the Firestore database and the paying user's `users/{uid}` profile exist
-  in this project. Accounts and records from the old project do not move automatically.
-- Cloud Functions deployment requires the **Blaze** billing plan.
-- Confirm the deployed Firestore rules allow users to read their own profile
-  and do not allow them to change their own `isPremium`. The repository's
-  `firestore.rules` already does this; its catch-all also protects `premiumPayments`.
+In Vercel, remove old Firebase environment overrides or set them to the v2 values
+from .env.example. Keep the Maps API key and map ID. Authorize the current domain
+https://byahe-bulacan-743h.vercel.app/* in the Maps key's website restrictions.
 
-From PowerShell in the project folder:
+## 2. Save the API secret in Firebase
+
+Run from the project folder in PowerShell:
 
 ```powershell
 firebase login --reauth
 npm --prefix functions ci
+firebase functions:secrets:set PAYMONGO_SECRET_KEY --project byahe-bulacan-v2
 ```
 
-Use a current Firebase CLI that supports Node.js 24 and 2nd-generation functions.
+Paste the sk_test_... API key when prompted. Firebase cannot read the key already
+in Vercel, so save it in Firebase too. Never prefix payment secrets with REACT_APP_.
+Test/live mode now comes from this API key. PAYMONGO_MODE is no longer used.
 
-## 2. Add the payment confirmation address in PayMongo
+## 3. Add the PayMongo webhook
 
-Start with **test mode** in PayMongo Dashboard.
-Go to **Developers > Webhooks > Add endpoint**.
-
-Endpoint URL:
+In PayMongo test mode, open Developers > Webhooks > Add endpoint.
+Use this address:
 
 ```text
 https://us-central1-byahe-bulacan-v2.cloudfunctions.net/paymongoWebhook
 ```
 
-Select the event:
+Subscribe to checkout_session.payment.paid. Save and copy the webhook signing
+secret, which is different from the API key. The endpoint becomes available
+when deployment completes. Do not accept payments until setup finishes.
 
-```text
-checkout_session.payment.paid
-```
-
-Save the endpoint and copy its **webhook signing secret**. This is different from
-an API secret key starting with `sk_test_` or `sk_live_`.
-The endpoint will become available after step 3. Do not take payments until setup finishes.
-
-## 3. Save the webhook secret in Firebase and deploy
-
-Run:
+## 4. Save the signing secret and deploy
 
 ```powershell
 firebase functions:secrets:set PAYMONGO_WEBHOOK_SECRET --project byahe-bulacan-v2
 ```
 
-When prompted, paste the **webhook signing secret** from step 2 into the terminal.
-Do not put it in React code, commit it, or send it in chat.
-
-Create the function's local configuration (this file is ignored by Git):
+Paste the webhook signing secret. Then deploy both functions:
 
 ```powershell
-Set-Content -LiteralPath functions/.env.byahe-bulacan-v2 -Value 'PAYMONGO_MODE=test'
+firebase deploy --only "functions:createPremiumCheckout,functions:paymongoWebhook" --project byahe-bulacan-v2
 ```
 
-If that file already contains other settings, edit/add only `PAYMONGO_MODE` instead
-of replacing the file.
+Confirm both functions deploy in us-central1. If Firebase prints a different public
+webhook URL, use that exact URL in PayMongo. A browser GET returning 405 is expected;
+PayMongo sends signed POST requests.
 
-Deploy only the webhook:
+The default return domain is https://byahe-bulacan-743h.vercel.app/.
+If functions/.env.byahe-bulacan-v2 contains APP_BASE_URL, update it to that domain
+or remove the override. This file is ignored by Git.
+
+If Firebase refuses to replace an existing first-generation function, pause
+payment testing, disable the PayMongo endpoint, delete only the old conflicting
+function from Firebase Console, and deploy again. Re-enable the endpoint afterward.
+This code uses second-generation functions.
+
+Review and deploy rules/indexes to v2 as needed:
 
 ```powershell
-firebase deploy --only functions:paymongoWebhook --project byahe-bulacan-v2
+firebase deploy --only "firestore:rules,firestore:indexes" --project byahe-bulacan-v2
 ```
 
-Confirm the deployment prints a function URL. If it prints a `run.app` URL,
-that is also a valid public function endpoint; you can use that exact URL in PayMongo.
-Check that the PayMongo endpoint is enabled and its URL reaches the deployed function.
-A browser GET returning `405 POST required` is expected: PayMongo sends POST requests.
+Users can read their profile but cannot change their own isPremium. Payment orders
+are server-only under the catch-all deny rule.
 
-If deployment says an existing **1st-generation** `paymongoWebhook` cannot be
-upgraded in place, pause payment testing, disable the PayMongo endpoint, delete
-only that old function in Firebase Console > Functions, then run the deployment
-command again. Update/re-enable the PayMongo endpoint afterward. This source uses
-2nd-generation functions for the existing Node.js 24 runtime.
+## 5. Redeploy Vercel and test
 
-The unused `createPremiumCheckout` implementation was removed from source.
-Checkout continues through Vercel `/api/checkout`. If the old Firebase
-`createPremiumCheckout` function was previously deployed, delete that unused
-function from Firebase Console too.
+Deploy the merged source to the Vercel project serving
+https://byahe-bulacan-743h.vercel.app/.
 
-## 4. Configure and deploy Vercel
+Sign in with a v2 account, start checkout from the app and finish a test payment.
+Verify:
 
-In the Vercel project serving `https://byahe-bulacan-743h.vercel.app/`, open
-**Settings > Environment Variables** and set:
+- A premiumOrders document is created for the signed-in user.
+- PayMongo's webhook delivery receives HTTP 200.
+- The order becomes paid and users/{uid}.isPremium becomes true.
+- The website shows Premium without signing out/in.
+- Re-delivering the payment does not grant access twice.
 
-```text
-PAYMONGO_SECRET_KEY=sk_test_your_actual_key
-```
+Only signed confirmations with the matching amount, currency, mode, order and
+session grant access. Both documented PayMongo event envelope formats are supported.
+A URL containing payment=success cannot grant Premium by itself.
 
-Keep the existing Google Maps variables. Redeploy the latest source so it includes
-both the authenticated checkout request and the v2 Firebase configuration.
-The API verifies the signed-in Firebase account with the v2 project's web API key;
-if you apply restrictions to that key, allow the Firebase Authentication API and
-account for the server-side identity lookup as well as browser authentication.
-Do not use `REACT_APP_` for either payment secret.
+npm start serves React. Firebase callable functions still need deployment for
+local checkout. The return domain remains the requested production site.
 
-For localhost, `npm start` serves React only; it does not run Vercel `/api/checkout`.
-Use the deployed test environment for this checklist. Return URLs intentionally
-point to the requested production domain.
-
-## 5. Check that the whole process works
-
-1. Sign in on the updated website using an account in v2. Confirm its Firestore
-   profile exists and `isPremium` is `false`.
-2. Start checkout from the website and complete a PayMongo test payment.
-3. In PayMongo, open the webhook delivery details. A matching payment should get
-   HTTP **200** from the Firebase function.
-4. In Firebase > Firestore > `users` > that user's UID, confirm `isPremium: true`.
-   A server-only receipt should also appear in `premiumPayments/{checkoutSessionId}`.
-5. The returned website should show Premium automatically, including when the
-   confirmation arrives after the redirect. Logging out/in should preserve access.
-6. Re-delivering the same signed payment should not create a second receipt.
-
-For failures, inspect Firebase logs:
+## Troubleshooting
 
 ```powershell
 firebase functions:log --only paymongoWebhook --project byahe-bulacan-v2
 ```
 
-- **401:** wrong signing secret, wrong test/live mode, or invalid/expired signature.
-- **400:** payment does not match the expected PHP 299 Premium checkout, or its
-  Firebase user reference is missing/invalid. Generic dashboard sample events may
-  lack the real user reference; test through the website instead.
-- **500:** Firebase could not save the upgrade, including a missing user profile.
-  Fix the cause and use PayMongo's delivery tools to retry where available; check
-  the provider delivery history rather than assuming every old event will replay.
-- **403 before the function runs:** the function is not publicly invokable. It
-  must accept public requests; the PayMongo signature authenticates the message.
+- 401: wrong signing secret, test/live mismatch, invalid or stale signature.
+- 400: invalid payment, wrong amount/currency/mode, or missing order reference.
+- 500: missing order/profile, session mismatch or Firebase write failure. Fix the
+  cause and retry delivery in PayMongo where available; old events may not replay.
+- 403 before the handler: the webhook must allow public requests. Its signature
+  authenticates PayMongo.
+- Profile error: verify the deployed app targets v2, with the correct users and rules.
 
-## 6. Switch to real payments
+Generic dashboard sample events may not match real orders. Test through the app.
+Previous UID-based Vercel payments require separate payment verification/account
+mapping and are not automatically reconciled as new orders.
 
-When testing passes, register/configure the corresponding **live-mode** webhook
-and store its signing secret in Firebase using the same secrets command. Set
-`PAYMONGO_MODE=live` in `functions/.env.byahe-bulacan-v2`, then redeploy the function.
-Set Vercel's `PAYMONGO_SECRET_KEY` to the matching `sk_live_...` key and redeploy
-Vercel. Do this before accepting real payments. A live-mode handler rejects test
-confirmations. Use a separate deployment/project if test and live environments
-must operate at the same time.
+## Real payments
 
-Old payments are not repaired automatically. Verify their PayMongo payment and
-original Firebase user mapping before restoring access. A user ID from the old
-Firebase project may not match their v2 account.
+After testing, set Firebase PAYMONGO_SECRET_KEY to the sk_live_... API key. Configure
+the live PayMongo webhook and store its signing secret in Firebase. Redeploy both
+functions before accepting real payments. Live mode rejects test confirmations.
+Use a separate project/deployment if test and live must operate at the same time.
+
+## Code checks
+
+```powershell
+npm --prefix functions test
+$env:CI = 'true'
+npm test -- --watchAll=false --runInBand
+npm run build
+```
 
 References:
 - https://docs.paymongo.com/docs/developer-tools-webhook-setup-management
-- https://docs.paymongo.com/reference/checkout-session-resource
+- https://docs.paymongo.com/docs/developer-tools-webhooks-events
+- https://docs.paymongo.com/docs/payment-channels-hosted-checkout
 - https://firebase.google.com/docs/functions/config-env
 - https://firebase.google.com/docs/functions/http-events
-- https://firebase.google.com/docs/functions/manage-functions

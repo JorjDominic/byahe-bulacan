@@ -39,28 +39,85 @@ service cloud.firestore {
     match /reviews/{reviewId} {
       allow read: if true;
       allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin()
+        && request.resource.data.keys().hasOnly(["spotId", "userId", "user", "stars", "text", "time", "createdAt"])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.spotId is string
+        && request.resource.data.user is string
+        && request.resource.data.stars is int
+        && request.resource.data.stars >= 1
+        && request.resource.data.stars <= 5
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["stars", "text"])
+        && request.resource.data.stars is int
+        && request.resource.data.stars >= 1
+        && request.resource.data.stars <= 5
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 2000
+      );
+      allow delete: if isAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
     }
 
     match /posts/{postId} {
       allow read: if true;
       allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.keys().hasOnly(["userId", "initials", "avatarBg", "name", "text", "tag", "tagColor", "hasImg", "imageUrl", "likes", "comments", "time", "createdAt"])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 5000
+        && request.resource.data.likes == 0
+        && request.resource.data.comments == 0
+        && request.resource.data.createdAt == request.time;
       allow update: if isAdmin() || (
         signedIn()
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(["likes", "comments"])
+        && (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["likes"])
+            && request.resource.data.likes is int
+            && request.resource.data.likes >= 0
+            && (
+              (
+                request.resource.data.likes == resource.data.likes + 1
+                && !exists(/databases/$(database)/documents/likes/$(postId + "_" + request.auth.uid))
+                && existsAfter(/databases/$(database)/documents/likes/$(postId + "_" + request.auth.uid))
+              )
+              || (
+                request.resource.data.likes == resource.data.likes - 1
+                && exists(/databases/$(database)/documents/likes/$(postId + "_" + request.auth.uid))
+                && !existsAfter(/databases/$(database)/documents/likes/$(postId + "_" + request.auth.uid))
+              )
+            )
+          )
+          || (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["comments"])
+            && request.resource.data.comments is int
+            && request.resource.data.comments >= 0
+            && request.resource.data.comments >= resource.data.comments - 1
+            && request.resource.data.comments <= resource.data.comments + 1
+          )
+        )
       );
       allow delete: if isAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
     }
 
     match /likes/{likeId} {
-      allow read: if signedIn();
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
       allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
+        && likeId == request.resource.data.postId + "_" + request.auth.uid
+        && request.resource.data.keys().hasOnly(["postId", "userId", "createdAt"])
+        && request.resource.data.postId is string
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.createdAt == request.time;
       allow delete: if signedIn()
         && resource.data.userId == request.auth.uid;
       allow update: if false;
@@ -69,15 +126,54 @@ service cloud.firestore {
     match /comments/{commentId} {
       allow read: if true;
       allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isAdmin()
+        && request.resource.data.keys().hasOnly(["postId", "userId", "user", "text", "createdAt"])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.postId is string
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 2000
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["text"])
+        && request.resource.data.text is string
+        && request.resource.data.text.size() >= 1
+        && request.resource.data.text.size() <= 2000
+      );
+      allow delete: if isAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
     }
 
     match /itineraries/{itineraryId} {
       allow create: if signedIn()
-        && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if isAdmin()
+        && itineraryId == request.auth.uid + "_" + request.resource.data.date
+        && request.resource.data.keys().hasOnly(["userId", "date", "tripName", "spots", "checklist", "minGap", "status", "manualDone", "totalFee", "createdAt", "updatedAt"])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.date is string
+        && request.resource.data.tripName is string
+        && request.resource.data.spots is list
+        && request.resource.data.checklist is map
+        && (request.resource.data.minGap is int || request.resource.data.minGap is float)
+        && (request.resource.data.totalFee is int || request.resource.data.totalFee is float)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow get: if isAdmin() || (
+        signedIn()
+        && itineraryId.matches("^" + request.auth.uid + "_.*$")
+      );
+      allow list: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (
+        signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.date == resource.data.date
+        && itineraryId == request.auth.uid + "_" + resource.data.date
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["tripName", "spots", "checklist", "minGap", "status", "manualDone", "totalFee", "updatedAt"])
+        && request.resource.data.updatedAt == request.time
+      );
+      allow delete: if isAdmin()
         || (signedIn() && resource.data.userId == request.auth.uid);
     }
 

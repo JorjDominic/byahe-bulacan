@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
-import { startPremiumCheckout } from "../services/premiumCheckout";
+import { startPremiumCheckout } from "../services/paymentService";
 
 export default function ProfileModal({ onClose }) {
   const { userName, userId, avatarUrl: currentAvatar, setAvatar, showToast, isPremium } = useApp();
@@ -88,14 +88,13 @@ export default function ProfileModal({ onClose }) {
     }
   };
 
-  // ─── VERCEL API PAYMONGO UPGRADE LOGIC ───
   const handleUpgrade = async () => {
     setSaving(true);
     setError("");
     showToast("🔌 Connecting to secure payment gateway...");
     
     try {
-      await startPremiumCheckout();
+      window.location.href = await startPremiumCheckout();
 
     } catch (err) {
       console.error("Upgrade error:", err);

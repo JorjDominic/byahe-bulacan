@@ -6,7 +6,7 @@ const secret = "test-webhook-secret";
 function event(live = false) {
   return { data: { id: "evt_1", attributes: { type: "checkout_session.payment.paid", data: {
     id: "cs_1", type: "checkout_session", attributes: {
-      reference_number: "user_1", livemode: live,
+      reference_number: "order_1", livemode: live,
       line_items: [{ name: "BiyaheBulacan Premium", amount: 29900, currency: "PHP", quantity: 1 }],
       payments: [{ id: "pay_1", attributes: { status: "paid", amount: 29900, currency: "PHP" } }],
     },
@@ -19,6 +19,9 @@ function request(payload = event(), mode = "test", timestamp = Math.floor(Date.n
 }
 function setup({ missingUser = false, fail = false, mode = "test" } = {}) {
   const records = new Map(missingUser ? [] : [["users/user_1", { isPremium: false }]]);
+  records.set("premiumOrders/order_1", {
+    userId: "user_1", status: "pending", checkoutSessionId: "cs_1", amount: 29900, currency: "PHP",
+  });
   let writes = 0;
   const db = {
     collection: (name) => ({ doc: (id) => `${name}/${id}` }),
@@ -57,7 +60,7 @@ test("paid checkout upgrades the user and duplicate sessions do not write again"
   const { call, records, writes } = setup();
   assert.equal((await call(request())).code, 200);
   assert.equal(records.get("users/user_1").isPremium, true);
-  assert.equal(records.get("premiumPayments/cs_1").userId, "user_1");
+  assert.equal(records.get("premiumOrders/order_1").status, "paid");
   const duplicate = event(); duplicate.data.id = "evt_retry";
   assert.equal((await call(request(duplicate))).code, 200);
   assert.equal(writes(), 2);
@@ -71,7 +74,7 @@ test("rejects unsigned, wrong-mode, unpaid, underpaid, wrong-currency and malfor
     (a) => { a.payments[0].attributes.status = "failed"; },
     (a) => { a.payments[0].attributes.amount = 100; },
     (a) => { a.payments[0].attributes.currency = "USD"; },
-    (a) => { a.line_items[0].name = "Other product"; },
+
     (a) => { a.reference_number = "bad/id"; },
     (a) => { a.payments = {}; },
   ]) {
@@ -98,4 +101,28 @@ test("live mode accepts live signatures and rejects test signatures", async () =
   const { call } = setup({ mode: "live" });
   assert.equal((await call(request())).code, 401);
   assert.equal((await call(request(event(true), "live"))).code, 200);
+});
+
+test("Hosted Checkout v2 envelope upgrades the same order without line items", async () => {
+  const payload = event();
+  const envelope = payload.data.attributes;
+  envelope.livemode = false;
+  delete envelope.data.attributes.line_items;
+  delete envelope.data.attributes.livemode;
+  const { call, records } = setup();
+  assert.equal((await call(request({ event_type: "send.webhook", data: envelope }))).code, 200);
+  assert.equal(records.get("users/user_1").isPremium, true);
+});
+test("unknown orders, wrong sessions and mismatched server orders cannot grant access", async () => {
+  for (const mutate of [
+    (payload, records) => { payload.data.attributes.data.attributes.reference_number = "unknown"; },
+    (payload, records) => { payload.data.attributes.data.id = "cs_other"; },
+    (payload, records) => { records.get("premiumOrders/order_1").amount = 100; },
+  ]) {
+    const { call, records, writes } = setup(); const payload = event();
+    mutate(payload, records);
+    assert.equal((await call(request(payload))).code, 500);
+    assert.equal(records.get("users/user_1").isPremium, false);
+    assert.equal(writes(), 0);
+  }
 });

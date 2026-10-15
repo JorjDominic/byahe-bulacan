@@ -22,39 +22,45 @@ function createWebhookHandler({ db, secret, mode, serverTimestamp, logger = cons
     let event;
     try { event = JSON.parse(req.rawBody.toString("utf8")).data; }
     catch { return res.status(400).send("Invalid JSON"); }
-    if (event?.attributes?.type !== "checkout_session.payment.paid") return res.status(200).send("Ignored");
-    const session = event.attributes.data;
+    // PayMongo documents both the Events resource and Hosted Checkout v2 envelopes.
+    const envelope = event?.attributes || event;
+    if (envelope?.type !== "checkout_session.payment.paid") return res.status(200).send("Ignored");
+    const session = envelope.data;
     const attributes = session?.attributes;
-    const uid = attributes?.reference_number;
+    const orderId = attributes?.reference_number;
     const validId = (value) => typeof value === "string" && value.length > 0 && value.length <= 128
       && !value.includes("/") && value !== "." && value !== "..";
     const paid = Array.isArray(attributes?.payments)
       ? attributes.payments.find((payment) => payment?.attributes?.status === "paid") : null;
-    const items = attributes?.line_items;
-    if (!validId(event.id) || !validId(session?.id) || session.type !== "checkout_session"
-        || !validId(uid) || attributes.livemode !== (mode === "live")
-        || !validId(paid?.id) || paid.attributes.amount !== 29900 || paid.attributes.currency !== "PHP"
-        || !Array.isArray(items) || items.length !== 1
-        || items[0]?.name !== "BiyaheBulacan Premium" || items[0].amount !== 29900
-        || items[0].quantity !== 1 || items[0].currency !== "PHP") {
+    const livemode = envelope?.livemode ?? attributes?.livemode;
+    if (!validId(session?.id) || session.type !== "checkout_session"
+        || !validId(orderId) || livemode !== (mode === "live")
+        || (attributes.livemode !== undefined && attributes.livemode !== (mode === "live"))
+        || !validId(paid?.id) || paid.attributes.amount !== 29900 || paid.attributes.currency !== "PHP") {
       return res.status(400).send("Payment does not match Premium checkout");
     }
     try {
-      // The session ID deduplicates separate event deliveries for the same purchase.
-      const receiptRef = db.collection("premiumPayments").doc(session.id);
-      const userRef = db.collection("users").doc(uid);
+      // The server-created order binds the payment to its authenticated owner.
+      const orderRef = db.collection("premiumOrders").doc(orderId);
       await db.runTransaction(async (transaction) => {
-        const receipt = await transaction.get(receiptRef);
-        if (receipt.exists) return;
+        const snapshot = await transaction.get(orderRef);
+        if (!snapshot.exists) throw new Error("Premium order is missing");
+        const order = snapshot.data();
+        if (order.checkoutSessionId !== session.id) throw new Error("Checkout session mismatch");
+        if (order.amount !== 29900 || order.currency !== "PHP" || !validId(order.userId)) {
+          throw new Error("Premium order does not match payment");
+        }
+        if (order.status === "paid") return;
+        const userRef = db.collection("users").doc(order.userId);
         const user = await transaction.get(userRef);
         if (!user.exists) throw new Error("Payment user profile is missing");
+        const now = serverTimestamp();
         transaction.update(userRef, {
-          isPremium: true,
-          ...(!user.data().premiumDate ? { premiumDate: serverTimestamp() } : {}),
+          isPremium: true, premiumOrderId: orderId,
+          ...(!user.data().premiumDate ? { premiumDate: now } : {}),
         });
-        transaction.set(receiptRef, {
-          userId: uid, eventId: event.id, paymentId: paid.id,
-          amount: 29900, currency: "PHP", livemode: mode === "live", processedAt: serverTimestamp(),
+        transaction.update(orderRef, {
+          status: "paid", paymentId: paid.id, paidAt: now, updatedAt: now,
         });
       });
       return res.status(200).send("Payment recorded");

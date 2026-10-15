@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useApp } from "../context/AppContext";
 import ROUTES from "../constants/routes";
-import { startPremiumCheckout } from "../services/premiumCheckout";
+import { startPremiumCheckout } from "../services/paymentService";
 
 export default function PremiumPage() {
   const { navigate, userId, isPremium } = useApp();
@@ -15,7 +15,7 @@ export default function PremiumPage() {
     
     setLoading(true);
     try {
-      await startPremiumCheckout();
+      window.location.href = await startPremiumCheckout();
     } catch (error) {
       console.error(error);
       alert(error.message || "Error connecting to payment gateway.");
