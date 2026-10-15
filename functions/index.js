@@ -1,90 +1,197 @@
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const axios = require("axios");
-const cors = require("cors")({ origin: true });
+const { logger } = require("firebase-functions");
+const { defineSecret } = require("firebase-functions/params");
+const { HttpsError, onCall, onRequest } = require("firebase-functions/v2/https");
+const { cleanBaseUrl, verifyPayMongoSignature } = require("./paymongo");
 
 admin.initializeApp();
 
-// Replace this with your PayMongo SECRET key (starts with sk_test_)
-const PAYMONGO_SECRET_KEY = "sk_test_YOUR_PAYMONGO_SECRET_KEY"; 
-const ENCODED_KEY = Buffer.from(PAYMONGO_SECRET_KEY + ":").toString("base64");
+const db = admin.firestore();
+const PAYMONGO_SECRET_KEY = defineSecret("PAYMONGO_SECRET_KEY");
+const PAYMONGO_WEBHOOK_SECRET = defineSecret("PAYMONGO_WEBHOOK_SECRET");
+const DEFAULT_APP_BASE_URL = "https://biyahe-bulacan.vercel.app";
 
-// 1. Endpoint to create a checkout session
-exports.createPremiumCheckout = functions.https.onRequest((req, res) => {
-  cors(req, res, async () => {
+const PREMIUM_AMOUNT = 29900;
+const PREMIUM_CURRENCY = "PHP";
+
+exports.createPremiumCheckout = onCall(
+  { invoker: "public", secrets: [PAYMONGO_SECRET_KEY] },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in before upgrading.");
+    }
+
+    const userId = request.auth.uid;
+    const userRef = db.collection("users").doc(userId);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) {
+      throw new HttpsError("failed-precondition", "Your user profile is missing.");
+    }
+    if (userSnapshot.get("isPremium") === true) {
+      throw new HttpsError("already-exists", "This account already has Premium access.");
+    }
+
+    const orderRef = db.collection("premiumOrders").doc();
+    await orderRef.set({
+      userId,
+      amount: PREMIUM_AMOUNT,
+      currency: PREMIUM_CURRENCY,
+      status: "pending",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const baseUrl = cleanBaseUrl(process.env.APP_BASE_URL || DEFAULT_APP_BASE_URL);
+    const payMongoKey = PAYMONGO_SECRET_KEY.value();
+    const encodedKey = Buffer.from(`${payMongoKey}:`).toString("base64");
+
     try {
-      const { userId, userEmail, userName } = req.body;
-
-      const options = {
-        method: 'POST',
-        url: 'https://api.paymongo.com/v1/checkout_sessions',
+      const response = await fetch("https://api.paymongo.com/v2/checkout_sessions", {
+        method: "POST",
         headers: {
-          accept: 'application/json',
-          'Content-Type': 'application/json',
-          authorization: `Basic ${ENCODED_KEY}`
+          Authorization: `Basic ${encodedKey}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": orderRef.id,
         },
-        data: {
+        body: JSON.stringify({
           data: {
             attributes: {
+              billing: {
+                name: userSnapshot.get("name") || "Traveler",
+                email: request.auth.token.email || userSnapshot.get("email"),
+              },
+              line_items: [
+                {
+                  name: "BiyaheBulacan Premium",
+                  description: "Lifetime Premium access",
+                  amount: PREMIUM_AMOUNT,
+                  currency: PREMIUM_CURRENCY,
+                  quantity: 1,
+                },
+              ],
+              payment_method_types: ["card", "gcash", "qrph"],
+              reference_number: orderRef.id,
+              metadata: { orderId: orderRef.id, product: "premium-lifetime" },
               send_email_receipt: true,
               show_description: true,
               show_line_items: true,
-              payment_method_types: ['gcash', 'paymaya', 'card'],
-              line_items: [
-                {
-                  currency: 'PHP',
-                  amount: 29900, // ₱299.00 (Amount must be in centavos)
-                  name: 'BiyaheBulacan Premium',
-                  quantity: 1,
-                  description: 'Lifetime access to unlimited itineraries and multi-day planning.'
-                }
-              ],
-              // We pass the userId in the reference_number so we know who paid later!
-              reference_number: userId, 
-              success_url: 'http://localhost:3000/dashboard?payment=success',
-              cancel_url: 'http://localhost:3000/dashboard?payment=cancelled',
-              billing: {
-                name: userName,
-                email: userEmail
-              }
-            }
-          }
-        }
-      };
-
-      const response = await axios.request(options);
-      
-      // Send the checkout URL back to React
-      res.status(200).send({ checkoutUrl: response.data.data.attributes.checkout_url });
-
-    } catch (error) {
-      console.error("PayMongo Error:", error.response ? error.response.data : error);
-      res.status(500).send({ error: "Failed to create checkout session" });
-    }
-  });
-});
-
-// 2. Webhook Endpoint to listen for successful payments
-exports.paymongoWebhook = functions.https.onRequest(async (req, res) => {
-  // PayMongo sends a POST request here when an event happens
-  const event = req.body.data.attributes.type;
-
-  if (event === "checkout_session.payment.paid") {
-    // Extract the userId we passed earlier
-    const userId = req.body.data.attributes.data.attributes.reference_number; 
-
-    try {
-      // Automatically upgrade the user in Firestore!
-      await admin.firestore().collection("users").doc(userId).update({
-        isPremium: true,
-        premiumDate: new Date().toISOString()
+              success_url: `${baseUrl}/?payment=success&order=${encodeURIComponent(orderRef.id)}`,
+              cancel_url: `${baseUrl}/?payment=cancelled`,
+            },
+          },
+        }),
       });
-      console.log(`Successfully upgraded user: ${userId}`);
+      const result = await response.json();
+      const checkoutSession = result?.data;
+      const checkoutUrl = checkoutSession?.attributes?.checkout_url;
+
+      if (!response.ok || !checkoutSession?.id || !checkoutUrl) {
+        logger.error("PayMongo checkout creation failed", {
+          status: response.status,
+          orderId: orderRef.id,
+          errors: result?.errors,
+        });
+        await orderRef.update({
+          status: "checkout_failed",
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        throw new HttpsError("internal", "PayMongo could not start checkout.");
+      }
+
+      await orderRef.update({
+        checkoutSessionId: checkoutSession.id,
+        checkoutUrl,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return { checkoutUrl };
     } catch (error) {
-      console.error("Failed to update user in Firestore:", error);
+      if (error instanceof HttpsError) throw error;
+      logger.error("Unexpected checkout error", { orderId: orderRef.id, error });
+      await orderRef.update({
+        status: "checkout_failed",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      throw new HttpsError("internal", "PayMongo could not start checkout.");
     }
   }
+);
+exports.paymongoWebhook = onRequest(
+  {
+    invoker: "public",
+    secrets: [PAYMONGO_SECRET_KEY, PAYMONGO_WEBHOOK_SECRET],
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
 
-  // Always respond with 200 so PayMongo knows you received it
-  res.status(200).send("Webhook received"); 
-});
+    const rawBody = req.rawBody;
+    const signature = req.get("paymongo-signature");
+    const testMode = PAYMONGO_SECRET_KEY.value().startsWith("sk_test_");
+    if (!verifyPayMongoSignature(
+      rawBody,
+      signature,
+      PAYMONGO_WEBHOOK_SECRET.value(),
+      testMode
+    )) {
+      logger.warn("Rejected PayMongo webhook with an invalid signature");
+      res.status(401).json({ error: "Invalid signature" });
+      return;
+    }
+
+    const event = req.body?.data;
+    if (event?.type !== "checkout_session.payment.paid") {
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    const session = event.data;
+    const orderId = session?.attributes?.reference_number;
+    const paidPayment = session?.attributes?.payments?.find(
+      (payment) => payment?.attributes?.status === "paid"
+    );
+
+    if (!orderId || !session?.id || !paidPayment) {
+      logger.error("Paid webhook is missing required checkout data");
+      res.status(400).json({ error: "Invalid event data" });
+      return;
+    }
+
+    try {
+      const orderRef = db.collection("premiumOrders").doc(orderId);
+      await db.runTransaction(async (transaction) => {
+        const orderSnapshot = await transaction.get(orderRef);
+        if (!orderSnapshot.exists) throw new Error("Premium order not found");
+
+        const order = orderSnapshot.data();
+        if (order.status === "paid") return;
+        if (order.checkoutSessionId !== session.id) throw new Error("Checkout session mismatch");
+        if (paidPayment.attributes.currency !== PREMIUM_CURRENCY) {
+          throw new Error("Payment currency mismatch");
+        }
+        if (paidPayment.attributes.amount !== PREMIUM_AMOUNT) {
+          throw new Error("Payment amount mismatch");
+        }
+
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        transaction.update(db.collection("users").doc(order.userId), {
+          isPremium: true,
+          premiumDate: now,
+          premiumOrderId: orderId,
+        });
+        transaction.update(orderRef, {
+          status: "paid",
+          paymentId: paidPayment.id,
+          paidAt: now,
+          updatedAt: now,
+        });
+      });
+
+      res.status(200).json({ received: true });
+    } catch (error) {
+      logger.error("PayMongo webhook processing failed", { orderId, error });
+      res.status(500).json({ error: "Webhook processing failed" });
+    }
+  }
+);

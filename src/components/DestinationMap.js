@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { MapPin, RefreshCw } from "lucide-react";
-import { loadGoogleMaps, subscribeToMapsErrors } from "../services/googleMaps";
+import { hasGoogleMapsKey, loadGoogleMaps, subscribeToMapsErrors } from "../services/googleMaps";
 import { getCoordinates, LOCATION_TYPES } from "../utils/coordinates";
 import "./DestinationMap.css";
 
@@ -178,7 +178,7 @@ export default function DestinationMap({
           <div className="destination-map__status" role={error ? "alert" : "status"}>
             <MapPin size={30} aria-hidden="true" />
             <p>{!shouldLoad ? "The exact location has not been added yet." : error || "Loading map…"}</p>
-            {error && process.env.REACT_APP_GOOGLE_MAPS_API_KEY && <button type="button" className="btn btn-sec btn-sm" onClick={() => setAttempt((value) => value + 1)}><RefreshCw size={14} aria-hidden="true" /> Try again</button>}
+            {error && hasGoogleMapsKey() && <button type="button" className="btn btn-sec btn-sm" onClick={() => setAttempt((value) => value + 1)}><RefreshCw size={14} aria-hidden="true" /> Try again</button>}
           </div>
         )}
       </div>

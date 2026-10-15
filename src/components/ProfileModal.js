@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { useApp } from "../context/AppContext";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../services/firebase";
+import { startPremiumCheckout } from "../services/paymentService";
 
 export default function ProfileModal({ onClose }) {
   const { userName, userId, avatarUrl: currentAvatar, setAvatar, showToast, isPremium } = useApp();
@@ -87,32 +88,13 @@ export default function ProfileModal({ onClose }) {
     }
   };
 
-  // ─── VERCEL API PAYMONGO UPGRADE LOGIC ───
   const handleUpgrade = async () => {
     setSaving(true);
     setError("");
     showToast("🔌 Connecting to secure payment gateway...");
     
     try {
-      // Call your FREE Vercel backend
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: userId,
-          userName: userName || "Traveler",
-          userEmail: "user@example.com"
-        })
-      });
-
-      const data = await response.json();
-
-      if (data?.data?.attributes?.checkout_url) {
-        // Send the user to the real PayMongo payment page
-        window.location.href = data.data.attributes.checkout_url;
-      } else {
-        throw new Error("No checkout URL returned.");
-      }
+      window.location.href = await startPremiumCheckout();
 
     } catch (err) {
       console.error("Upgrade error:", err);

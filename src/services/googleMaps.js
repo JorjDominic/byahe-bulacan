@@ -3,6 +3,18 @@ let authenticationError = null;
 const errorListeners = new Set();
 const SCRIPT_ID = "biyahe-google-maps";
 
+function getConfiguredKey() {
+  return (
+    process.env.REACT_APP_GOOGLE_MAPS_API_KEY
+    || process.env.REACT_APP_GOOGLE_CALENDAR_KEY
+    || ""
+  ).trim();
+}
+
+export function hasGoogleMapsKey() {
+  return Boolean(getConfiguredKey());
+}
+
 export function subscribeToMapsErrors(listener) {
   errorListeners.add(listener);
   if (authenticationError) listener(authenticationError);
@@ -14,7 +26,9 @@ export function loadGoogleMaps() {
   if (window.google?.maps?.importLibrary) return Promise.resolve(window.google.maps);
   if (loadingPromise) return loadingPromise;
 
-  const key = process.env.REACT_APP_GOOGLE_MAPS_API_KEY?.trim();
+  // Support the original local variable name while deployments migrate to
+  // the dedicated Maps key name documented in .env.example.
+  const key = getConfiguredKey();
   if (!key) return Promise.reject(new Error("Maps are not available yet. Please try again later."));
 
   loadingPromise = new Promise((resolve, reject) => {

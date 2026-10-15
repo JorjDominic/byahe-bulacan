@@ -3,7 +3,7 @@ import { useApp } from "../context/AppContext";
 import ROUTES from "../constants/routes";
 import TravelPlanner from "../components/TravelPlanner";
 import { getCoordinates } from "../utils/coordinates";
-import { saveItinerary, addPost, addReview } from "../services/spotService";
+import { saveItinerary, deleteSavedItinerary, addPost, addReview } from "../services/spotService";
 
 // 1. Import all necessary SVG Icons from lucide-react!
 import { 
@@ -162,7 +162,6 @@ export default function ItineraryPage() {
   const [selectedMapSpotId, setSelectedMapSpotId] = useState(null);
   const mapPanelRef = useRef(null);
   const [editingStopId,setEditingStopId]= useState(null);
-  const [manualDone,   setManualDone]   = useState(false);
   const [showReview,   setShowReview]   = useState(false);
   const [showPostFeed, setShowPostFeed] = useState(false);
 
@@ -173,6 +172,7 @@ export default function ItineraryPage() {
   const count            = spots.length;
   const totalFee         = spots.reduce((sum, spot) => sum + parseFee(spot.fee), 0);
   const checklist        = currentItinerary.checklist || {};
+  const manualDone       = currentItinerary.manualDone === true;
   const checkedCount     = TRIP_CHECKLIST.filter((item) => checklist[item.id]).length;
   const readinessPercent = Math.round((checkedCount / TRIP_CHECKLIST.length) * 100);
   const municipalities   = [...new Set(spots.map((s) => s.municipality).filter(Boolean))];
@@ -200,7 +200,13 @@ export default function ItineraryPage() {
     setSaving(true);
     setError("");
     try {
-      await saveItinerary(userId, tripName, spots);
+      await saveItinerary(userId, tripDate, {
+        ...currentItinerary,
+        name: tripName,
+        spots,
+        status: tripStatus,
+        manualDone,
+      });
       setSaved(true);
       showToast("✅ Itinerary saved!");
       setTimeout(() => setSaved(false), 3000);
@@ -263,10 +269,15 @@ export default function ItineraryPage() {
     showToast("✅ Arrival time updated!");
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!window.confirm(`Delete entire itinerary for ${tripDate}? This cannot be undone.`)) return;
-    deleteItinerary(tripDate); 
-    setManualDone(false);
+    try {
+      if (userId) await deleteSavedItinerary(userId, tripDate);
+      deleteItinerary(tripDate);
+    } catch (deleteError) {
+      console.error("Itinerary deletion failed:", deleteError);
+      showToast("The saved itinerary could not be deleted. Please try again.");
+    }
   };
 
   const toggleChecklistItem = (itemId) => {
@@ -337,7 +348,7 @@ export default function ItineraryPage() {
               <button
                 className="btn btn-sm"
                 style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "none", fontWeight: 600, display: "flex", alignItems: "center", gap: "6px" }}
-                onClick={() => setManualDone(true)}
+                onClick={() => updateItineraryMeta(tripDate, { manualDone: true, status: "done" })}
               >
                 <CheckCircle size={16} /> Mark as Done
               </button>

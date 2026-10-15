@@ -1,6 +1,7 @@
 let loadGoogleMaps;
 let subscribeToMapsErrors;
 const originalKey = process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+const originalLegacyKey = process.env.REACT_APP_GOOGLE_CALENDAR_KEY;
 
 beforeEach(() => {
   jest.resetModules();
@@ -10,6 +11,7 @@ beforeEach(() => {
   delete window.biyaheMapsReady;
   document.getElementById("biyahe-google-maps")?.remove();
   process.env.REACT_APP_GOOGLE_MAPS_API_KEY = "test-key";
+  delete process.env.REACT_APP_GOOGLE_CALENDAR_KEY;
   ({ loadGoogleMaps, subscribeToMapsErrors } = require("./googleMaps"));
 });
 afterEach(() => {
@@ -21,12 +23,24 @@ afterEach(() => {
   document.getElementById("biyahe-google-maps")?.remove();
   if (originalKey === undefined) delete process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
   else process.env.REACT_APP_GOOGLE_MAPS_API_KEY = originalKey;
+  if (originalLegacyKey === undefined) delete process.env.REACT_APP_GOOGLE_CALENDAR_KEY;
+  else process.env.REACT_APP_GOOGLE_CALENDAR_KEY = originalLegacyKey;
 });
 
 test("missing configuration does not request a map", async () => {
   delete process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+  delete process.env.REACT_APP_GOOGLE_CALENDAR_KEY;
   await expect(loadGoogleMaps()).rejects.toThrow("not available yet");
   expect(document.getElementById("biyahe-google-maps")).toBeNull();
+});
+
+test("legacy calendar key remains compatible with local Maps setup", () => {
+  delete process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+  process.env.REACT_APP_GOOGLE_CALENDAR_KEY = "legacy-browser-key";
+  const result = loadGoogleMaps();
+  expect(document.getElementById("biyahe-google-maps").src).toContain("key=legacy-browser-key");
+  document.getElementById("biyahe-google-maps").dispatchEvent(new Event("error"));
+  return expect(result).rejects.toThrow("Unable to load");
 });
 
 test("simultaneous maps share one SDK load", async () => {
